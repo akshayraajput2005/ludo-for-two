@@ -1,5 +1,5 @@
 import type { Server, Socket } from 'socket.io';
-import { forfeit, move, roll, currentColor } from '../game/engine.ts';
+import { botMove, forfeit, move, roll, currentColor } from '../game/engine.ts';
 import {
   addPlayer, createRoom, drawCard, getRoom, pickCard, Player, publicState, removePlayer, Room, startGame,
 } from '../rooms/rooms.ts';
@@ -42,14 +42,40 @@ const cleanAvatar = (v: unknown) => (typeof v === 'string' && AVATARS.includes(v
 
 export interface HandlerOptions {
   rollDie: () => number;
+  botDelayMs?: number;
 }
+
+// Only a player with this name gets the Manual / Bot switch.
+export const BOT_NAME = 'kuttaakshay';
+export const canUseBot = (name: string) => name.toLowerCase().replace(/\s+/g, '') === BOT_NAME;
 
 export function registerHandlers(io: Server, opts: HandlerOptions) {
   let chatSeq = 0;
+  const botTimers = new WeakMap<Room, ReturnType<typeof setTimeout>>();
+  const botDelay = opts.botDelayMs ?? 1300; // lets the clients' dice/step animations finish
   const broadcast = (room: Room) => {
     room.lastActivity = Date.now();
     io.to(room.code).emit('room:state', publicState(room));
+    scheduleBot(room);
   };
+
+  // If the seat whose turn it is has Bot on, act for it after a short pause.
+  function scheduleBot(room: Room) {
+    clearTimeout(botTimers.get(room));
+    const g = room.game;
+    if (room.status !== 'playing' || !g || g.phase === 'over') return;
+    const p = room.players.find((x) => x.color === currentColor(g));
+    if (!p?.auto || p.left) return;
+    const version = g.version;
+    botTimers.set(room, setTimeout(() => {
+      if (getRoom(room.code) !== room || room.game !== g || g.version !== version || !p.auto) return;
+      const res = g.phase === 'roll' ? roll(g, p.color, opts.rollDie()) : move(g, p.color, botMove(g, p.color));
+      if (res.ok) {
+        if (g.phase === 'over') room.status = 'finished';
+        broadcast(room);
+      }
+    }, botDelay));
+  }
 
   io.on('connection', (socket: Socket) => {
     const actionOk = limiter(10, 1000);
@@ -70,7 +96,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       p.connected = true;
       socket.join(r.code);
     };
-    const you = () => ({ code: room!.code, playerId: me!.id, secret: me!.secret });
+    const you = () => ({ code: room!.code, playerId: me!.id, secret: me!.secret, auto: me!.auto });
     const safe = (fn: (args: any, ack: Ack) => void) => (args: any, ack?: Ack) => {
       const reply: Ack = typeof ack === 'function' ? ack : () => {};
       try {
@@ -161,6 +187,13 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       }
       ack({ ok: true });
       broadcast(r);
+    }));
+
+    socket.on('player:auto', member((r, p, args, ack) => {
+      if (!canUseBot(p.name)) return ack({ ok: false, error: 'Not available' });
+      p.auto = !!args.on;
+      ack({ ok: true, auto: p.auto });
+      scheduleBot(r);
     }));
 
     socket.on('game:roll', member((r, p, _args, ack) => {

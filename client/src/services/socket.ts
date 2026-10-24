@@ -11,7 +11,7 @@ export const socket = io(URL, {
 });
 
 // `transient` = network problem, not an answer from the server.
-export type Ack = { ok: boolean; error?: string; transient?: boolean; code?: string; playerId?: string; secret?: string };
+export type Ack = { ok: boolean; error?: string; transient?: boolean; code?: string; playerId?: string; secret?: string; auto?: boolean };
 
 export function emit(event: string, args: object = {}): Promise<Ack> {
   return new Promise((resolve) => {

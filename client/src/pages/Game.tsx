@@ -17,12 +17,17 @@ interface Props {
   reactions: Reaction[];
   onLeave: () => void;
   onError: (m: string) => void;
+  auto: boolean;
+  onAuto: (on: boolean) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const STEP_MS = 170;
 const ROLL_MS = 600;
 
-export default function Game({ room, myId, conn, reactions, onLeave, onError }: Props) {
+// Only this name sees the Manual / Bot switch (the server checks it too).
+const canUseBot = (name: string) => name.toLowerCase().replace(/\s+/g, '') === 'kuttaakshay';
+
+export default function Game({ room, myId, conn, reactions, onLeave, onError, auto, onAuto }: Props) {
   const game = room.game!;
   const me = room.players.find((p) => p.id === myId)!;
   const byColor = new Map(room.players.map((p) => [p.color, p]));
@@ -103,8 +108,8 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError }: 
     pending.current = false;
     if (!r.ok) onError(r.error!);
   };
-  const canRoll = myTurn && game.phase === 'roll' && !rolling && !animating && conn === 'connected';
-  const legal = myTurn && game.phase === 'move' && !rolling && !animating ? game.legal : [];
+  const canRoll = myTurn && !auto && game.phase === 'roll' && !rolling && !animating && conn === 'connected';
+  const legal = myTurn && !auto && game.phase === 'move' && !rolling && !animating ? game.legal : [];
 
   // Space / Enter rolls on laptops.
   useEffect(() => {
@@ -135,6 +140,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError }: 
   if (game.phase === 'over') status = winner?.id === myId ? 'You won! 🎉' : `${winner?.name} won`;
   else if (rolling) status = myTurn ? 'Rolling…' : `${currentPlayer?.name} is rolling…`;
   else if (currentPlayer && !currentPlayer.connected) status = `${currentPlayer.name} is offline — waiting for them to reconnect`;
+  else if (myTurn && auto) status = '🤖 Bot is playing for you…';
   else if (myTurn) status = game.phase === 'roll' ? (game.sixStreak > 0 ? 'Six! Roll again 🎲' : 'Your turn — roll the dice') : 'Tap a glowing token to move';
   else status = `${currentPlayer?.name}'s turn`;
 
@@ -209,6 +215,17 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError }: 
       {/* foot: dice + status + reactions */}
       <div className="[grid-area:foot] space-y-2 min-w-0">
         {controls}
+        {canUseBot(me.name) && game.phase !== 'over' && (
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-full btn-ghost" role="radiogroup" aria-label="Who plays your turns">
+            {([false, true] as const).map((on) => (
+              <button key={String(on)} role="radio" aria-checked={auto === on}
+                onClick={async () => { const r = await onAuto(on); if (!r.ok) onError(r.error!); }}
+                className={`rounded-full py-1.5 text-sm font-extrabold transition ${auto === on ? 'bg-[var(--card)] shadow' : 'muted'}`}>
+                {on ? '🤖 Bot' : '✋ Manual'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="hidden lg:block land:!hidden"><Reactions onError={onError} /></div>
       </div>
 

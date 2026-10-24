@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 import { rollDie } from './game/dice.ts';
 import { roomCount, sweep } from './rooms/rooms.ts';
-import { registerHandlers } from './sockets/handlers.ts';
+import { registerHandlers, type HandlerOptions } from './sockets/handlers.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIST = path.resolve(here, '../../client/dist');
@@ -15,7 +15,7 @@ const CLIENT_DIST = path.resolve(here, '../../client/dist');
 const origins = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
-export function createServer(opts = { rollDie }) {
+export function createServer(opts: HandlerOptions = { rollDie }) {
   const app = express();
   app.disable('x-powered-by');
   app.get('/health', (_req, res) => { res.json({ ok: true, rooms: roomCount() }); });

@@ -19,6 +19,7 @@ export function useRoom() {
   const [rejoining, setRejoining] = useState(() => !!session.get());
   const [notice, setNotice] = useState<string | null>(null);
   const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [auto, setAutoState] = useState(false); // Bot mode (server plays my turns)
 
   useEffect(() => {
     // Every (re)connect re-binds this socket to our seat; the server replies with fresh state.
@@ -36,7 +37,7 @@ export function useRoom() {
         setMe(null);
         setRoom(null);
         setNotice(res.error ?? 'Could not rejoin');
-      }
+      } else setAutoState(!!res.auto);
       setRejoining(false);
     };
     const onDisconnect = (reason: string) =>
@@ -69,6 +70,7 @@ export function useRoom() {
     session.set(s);
     setMe(s);
     setNotice(null);
+    setAutoState(!!res.auto);
     setUrlRoom(res.code);
     return res;
   };
@@ -96,7 +98,13 @@ export function useRoom() {
     setUrlRoom(null);
   }, []);
 
+  const setAuto = useCallback(async (on: boolean) => {
+    const res = await emit('player:auto', { on });
+    if (res.ok) setAutoState(!!res.auto);
+    return res;
+  }, []);
+
   const reconnect = useCallback(() => { setConn('connecting'); socket.connect(); }, []);
 
-  return { conn, room, me, rejoining, notice, reactions, create, join, leave, forget, reconnect };
+  return { conn, room, me, rejoining, notice, reactions, auto, setAuto, create, join, leave, forget, reconnect };
 }

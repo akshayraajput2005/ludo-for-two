@@ -228,3 +228,38 @@ describe('full random games', () => {
     }
   });
 });
+
+describe('bot', () => {
+  it('prefers a capture, then finishing, then leaving base', async () => {
+    const { botMove } = await import('../game/engine.ts');
+    const g = twoPlayer();
+    g.tokens.red = [27, 10, BASE, BASE];
+    g.tokens.yellow = [4, BASE, BASE, BASE]; // red 30 captures yellow 4
+    roll(g, 'red', 3);
+    expect(botMove(g, 'red')).toBe(0);
+
+    const h = twoPlayer();
+    h.tokens.red = [53, 10, BASE, BASE];
+    roll(h, 'red', 3);
+    expect(botMove(h, 'red')).toBe(0); // 53 + 3 = finish
+
+    const k = twoPlayer();
+    k.tokens.red = [20, BASE, BASE, BASE];
+    roll(k, 'red', 6);
+    expect([1, 2, 3]).toContain(botMove(k, 'red')); // bring a new token out
+  });
+
+  it('a bot-vs-bot game always finishes', async () => {
+    const { botMove } = await import('../game/engine.ts');
+    for (let n = 0; n < 50; n++) {
+      const g = twoPlayer();
+      let steps = 0;
+      while (g.phase !== 'over' && steps++ < 20000) {
+        const c = currentColor(g);
+        if (g.phase === 'roll') roll(g, c, rollDie());
+        else if (!move(g, c, botMove(g, c)).ok) throw new Error('bot picked an illegal move');
+      }
+      expect(g.phase).toBe('over');
+    }
+  });
+});

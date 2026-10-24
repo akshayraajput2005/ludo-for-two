@@ -168,3 +168,36 @@ export function forfeit(g: Game, color: Color) {
   if (remaining.length === 1) return endGame(g, remaining[0]);
   if (currentColor(g) === color) nextTurn(g);
 }
+
+// Simple bot: pick the best legal token for the current dice.
+// Priorities: capture > finish > leave base > reach home column > safe square > advance, avoiding squares an opponent can hit.
+export function botMove(g: Game, color: Color): number {
+  const dice = g.dice!;
+  let best = g.legal[0];
+  let bestScore = -Infinity;
+  for (const t of g.legal) {
+    const from = g.tokens[color][t];
+    const to = from === BASE ? 0 : from + dice;
+    let score = to; // prefer advancing further tokens a little
+    if (to === FINISH) score += 800;
+    else if (from === BASE) score += 600;
+    else if (to > LAST_TRACK && from <= LAST_TRACK) score += 400;
+    if (to <= LAST_TRACK) {
+      const sq = absSquare(color, to);
+      const safe = SAFE_SQUARES.has(sq);
+      for (const other of g.order) {
+        if (other === color || g.out.includes(other)) continue;
+        for (const p of g.tokens[other]) {
+          if (p < 0 || p > LAST_TRACK) continue;
+          const osq = absSquare(other as Color, p);
+          if (osq === sq && !safe) score += 1000; // capture
+          const behind = (sq - osq + 52) % 52; // opponent can reach us next turn
+          if (!safe && behind >= 1 && behind <= 6) score -= 300;
+        }
+      }
+      if (safe) score += 200;
+    }
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return best;
+}

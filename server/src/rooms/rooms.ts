@@ -14,6 +14,7 @@ export interface Player {
   ready: boolean;
   connected: boolean;
   left: boolean;
+  auto: boolean; // server plays this seat (only allowed for BOT_NAME)
   socketId: string | null;
 }
 
@@ -76,7 +77,7 @@ export function addPlayer(room: Room, name: string, avatar: string): Player {
   const color = SEATS[room.maxPlayers].find((c) => !taken.has(c))!;
   const player: Player = {
     id: token(9), secret: token(24), name, avatar, color,
-    ready: false, connected: true, left: false, socketId: null,
+    ready: false, connected: true, left: false, auto: false, socketId: null,
   };
   room.players.push(player);
   if (!room.hostId) room.hostId = player.id;

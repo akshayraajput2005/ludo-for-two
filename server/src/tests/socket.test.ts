@@ -6,7 +6,7 @@ import { getRoom } from '../rooms/rooms.ts';
 
 // Scripted dice so the flows are deterministic.
 const diceQueue: number[] = [];
-const { http, io } = createServer({ rollDie: () => diceQueue.shift() ?? 1 });
+const { http, io } = createServer({ rollDie: () => diceQueue.shift() ?? 1, botDelayMs: 10 });
 let url = '';
 const sockets: Socket[] = [];
 
@@ -206,5 +206,29 @@ describe('this or that', () => {
     const next = waitState(a, (st) => st.tot && !st.tot.revealed);
     await call(b, 'tot:draw', {});
     expect((await next).tot.picked).toEqual([]);
+  });
+});
+
+describe('bot mode', () => {
+  it('only kuttaakshay can turn it on, and then the server plays that seat', async () => {
+    const a = await client();
+    const b = await client();
+    const created = await call(a, 'room:create', { name: 'Kutta Akshay' });
+    await call(b, 'room:join', { code: created.code, name: 'Her' });
+    expect((await call(b, 'player:auto', { on: true })).error).toBe('Not available');
+    const on = await call(a, 'player:auto', { on: true });
+    expect(on).toMatchObject({ ok: true, auto: true });
+
+    await call(a, 'room:ready', { ready: true });
+    diceQueue.push(6, 3); // bot: roll 6 -> bring a token out -> roll 3 -> move it
+    const played = waitState(b, (st) => st.game && st.game.tokens.red.some((t: number) => t === 3));
+    await call(b, 'room:ready', { ready: true });
+    const s = await played;
+    expect(s.game.order[s.game.current]).toBe('yellow'); // turn passed to her
+    expect(JSON.stringify(s)).not.toContain('auto'); // she can't see bot mode
+
+    // rejoin reports the current setting so the switch shows correctly
+    const a2 = await client();
+    expect((await call(a2, 'room:rejoin', { code: created.code, secret: created.secret })).auto).toBe(true);
   });
 });

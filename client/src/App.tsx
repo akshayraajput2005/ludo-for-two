@@ -47,7 +47,7 @@ export default function App() {
   return (
     <>
       {r.room.status === 'playing' || r.room.status === 'finished' && !r.room.tot
-        ? <Game {...common} reactions={r.reactions} />
+        ? <Game {...common} reactions={r.reactions} auto={r.auto} onAuto={r.setAuto} />
         : r.room.tot ? <ThisOrThat {...common} reactions={r.reactions} /> : <Lobby {...common} />}
       {toast}
     </>
