@@ -1,0 +1,218 @@
+import type { Server, Socket } from 'socket.io';
+import { forfeit, move, roll, currentColor } from '../game/engine.ts';
+import {
+  addPlayer, createRoom, getRoom, Player, publicState, removePlayer, Room, startGame,
+} from '../rooms/rooms.ts';
+
+export const AVATARS = ['🦊', '🐼', '🐱', '🐶', '🐰', '🦁', '🐸', '🐧', '🦄', '🐻', '🌸', '⭐'];
+export const REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👏', '🔥', '😘'];
+const MAX_CHAT = 50;
+
+type Ack = (res: { ok: boolean; error?: string; [k: string]: unknown }) => void;
+
+// Token bucket per socket per kind.
+function limiter(capacity: number, perMs: number) {
+  let tokens = capacity;
+  let last = Date.now();
+  return () => {
+    const now = Date.now();
+    tokens = Math.min(capacity, tokens + ((now - last) / perMs) * capacity);
+    last = now;
+    if (tokens < 1) return false;
+    tokens--;
+    return true;
+  };
+}
+
+export function cleanName(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/[\p{C}<>]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+  return s.length ? s : null;
+}
+
+export function cleanText(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.replace(/\p{C}/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return s.length ? s : null;
+}
+
+const cleanCode = (v: unknown) => (typeof v === 'string' ? v.trim().toUpperCase().slice(0, 12) : '');
+const cleanAvatar = (v: unknown) => (typeof v === 'string' && AVATARS.includes(v) ? v : AVATARS[0]);
+
+export interface HandlerOptions {
+  rollDie: () => number;
+}
+
+export function registerHandlers(io: Server, opts: HandlerOptions) {
+  let chatSeq = 0;
+  const broadcast = (room: Room) => {
+    room.lastActivity = Date.now();
+    io.to(room.code).emit('room:state', publicState(room));
+  };
+
+  io.on('connection', (socket: Socket) => {
+    const actionOk = limiter(10, 1000);
+    const chatOk = limiter(5, 5000);
+    const joinOk = limiter(5, 10_000);
+
+    // Which room/player this socket is bound to. Set only by create/join/rejoin.
+    let room: Room | undefined;
+    let me: Player | undefined;
+
+    const bind = (r: Room, p: Player) => {
+      if (room && room !== r) socket.leave(room.code);
+      // A second tab/device with the same token takes over the seat.
+      if (p.socketId && p.socketId !== socket.id) io.sockets.sockets.get(p.socketId)?.disconnect(true);
+      room = r;
+      me = p;
+      p.socketId = socket.id;
+      p.connected = true;
+      socket.join(r.code);
+    };
+    const you = () => ({ code: room!.code, playerId: me!.id, secret: me!.secret });
+    const safe = (fn: (args: any, ack: Ack) => void) => (args: any, ack?: Ack) => {
+      const reply: Ack = typeof ack === 'function' ? ack : () => {};
+      try {
+        fn(args ?? {}, reply);
+      } catch (err) {
+        console.error('handler error', err instanceof Error ? err.message : err);
+        reply({ ok: false, error: 'Server error' });
+      }
+    };
+    // Every room event goes through this: rejects sockets that are not a seated player.
+    const member = (fn: (r: Room, p: Player, args: any, ack: Ack) => void) =>
+      safe((args, ack) => {
+        if (!room || !me || me.left || getRoom(room.code) !== room) return ack({ ok: false, error: 'Not in a room' });
+        if (!actionOk()) return ack({ ok: false, error: 'Slow down' });
+        fn(room, me, args, ack);
+      });
+
+    socket.on('room:create', safe((args, ack) => {
+      if (!joinOk()) return ack({ ok: false, error: 'Too many attempts, wait a moment' });
+      const name = cleanName(args.name);
+      if (!name) return ack({ ok: false, error: 'Enter your name' });
+      const max = [2, 3, 4].includes(args.maxPlayers) ? args.maxPlayers : 2;
+      const r = createRoom(max);
+      bind(r, addPlayer(r, name, cleanAvatar(args.avatar)));
+      ack({ ok: true, ...you() });
+      broadcast(r);
+    }));
+
+    socket.on('room:join', safe((args, ack) => {
+      if (!joinOk()) return ack({ ok: false, error: 'Too many attempts, wait a moment' });
+      const name = cleanName(args.name);
+      if (!name) return ack({ ok: false, error: 'Enter your name' });
+      const r = getRoom(cleanCode(args.code));
+      if (!r) return ack({ ok: false, error: 'Room not found. Check the code — rooms expire when empty.' });
+      if (r.status !== 'lobby') return ack({ ok: false, error: 'This game has already started' });
+      if (r.players.length >= r.maxPlayers) return ack({ ok: false, error: 'This room is full' });
+      bind(r, addPlayer(r, name, cleanAvatar(args.avatar)));
+      ack({ ok: true, ...you() });
+      broadcast(r);
+    }));
+
+    socket.on('room:rejoin', safe((args, ack) => {
+      if (!joinOk()) return ack({ ok: false, error: 'Too many attempts, wait a moment' });
+      const r = getRoom(cleanCode(args.code));
+      const p = r?.players.find((x) => typeof args.secret === 'string' && x.secret === args.secret);
+      if (!r || !p) return ack({ ok: false, error: 'That game is no longer available' });
+      if (p.left) return ack({ ok: false, error: 'You left this game' });
+      bind(r, p);
+      ack({ ok: true, ...you() });
+      broadcast(r);
+    }));
+
+    socket.on('room:ready', member((r, p, args, ack) => {
+      if (r.status !== 'lobby') return ack({ ok: false, error: 'Game already started' });
+      p.ready = !!args.ready;
+      const all = r.players.every((x) => x.ready);
+      if (all && r.players.length === r.maxPlayers) startGame(r);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('room:start', member((r, p, _args, ack) => {
+      if (r.status !== 'lobby') return ack({ ok: false, error: 'Game already started' });
+      if (r.hostId !== p.id) return ack({ ok: false, error: 'Only the host can start' });
+      if (r.players.length < 2 || !r.players.every((x) => x.ready)) {
+        return ack({ ok: false, error: 'Need at least 2 players, all ready' });
+      }
+      startGame(r);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('room:leave', member((r, p, _args, ack) => {
+      socket.leave(r.code);
+      room = undefined;
+      me = undefined;
+      if (r.status === 'lobby') {
+        removePlayer(r, p.id);
+      } else {
+        p.left = true;
+        p.connected = false;
+        p.socketId = null;
+        if (r.status === 'playing' && r.game) {
+          forfeit(r.game, p.color);
+          if (r.game.phase === 'over') r.status = 'finished';
+        }
+        if (r.hostId === p.id) r.hostId = r.players.find((x) => !x.left)?.id ?? p.id;
+      }
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('game:roll', member((r, p, _args, ack) => {
+      const g = r.game;
+      if (r.status !== 'playing' || !g) return ack({ ok: false, error: 'No game in progress' });
+      if (currentColor(g) !== p.color) return ack({ ok: false, error: 'Not your turn' });
+      const res = roll(g, p.color, opts.rollDie());
+      ack(res);
+      if (res.ok) broadcast(r);
+    }));
+
+    socket.on('game:move', member((r, p, args, ack) => {
+      const g = r.game;
+      if (r.status !== 'playing' || !g) return ack({ ok: false, error: 'No game in progress' });
+      if (args.version !== g.version) return ack({ ok: false, error: 'Out of date, try again' });
+      const res = move(g, p.color, Number(args.token));
+      if (res.ok && g.phase === 'over') r.status = 'finished';
+      ack(res);
+      if (res.ok) broadcast(r);
+    }));
+
+    socket.on('game:rematch', member((r, p, _args, ack) => {
+      if (r.status !== 'finished') return ack({ ok: false, error: 'Game is not over' });
+      const active = r.players.filter((x) => !x.left);
+      if (active.length < 2) return ack({ ok: false, error: 'Not enough players for a rematch' });
+      if (!r.rematch.includes(p.id)) r.rematch.push(p.id);
+      if (active.every((x) => r.rematch.includes(x.id))) startGame(r);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('chat:send', member((r, p, args, ack) => {
+      if (!chatOk()) return ack({ ok: false, error: 'Slow down' });
+      const text = cleanText(args.text);
+      if (!text) return ack({ ok: false, error: 'Empty message' });
+      r.chat.push({ id: ++chatSeq, playerId: p.id, text, at: Date.now() });
+      if (r.chat.length > MAX_CHAT) r.chat.shift();
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('chat:react', member((r, p, args, ack) => {
+      if (!chatOk()) return ack({ ok: false, error: 'Slow down' });
+      if (!REACTIONS.includes(args.emoji)) return ack({ ok: false, error: 'Unknown reaction' });
+      io.to(r.code).emit('chat:reaction', { playerId: p.id, emoji: args.emoji, id: ++chatSeq });
+      ack({ ok: true });
+    }));
+
+    socket.on('disconnect', () => {
+      if (!room || !me || me.socketId !== socket.id) return; // replaced by a newer socket
+      me.connected = false;
+      me.socketId = null;
+      if (getRoom(room.code) === room) broadcast(room);
+    });
+  });
+}

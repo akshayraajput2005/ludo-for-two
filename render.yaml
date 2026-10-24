@@ -1,0 +1,16 @@
+# Render blueprint for the game server (Dashboard -> New -> Blueprint -> pick this repo).
+# The page itself is hosted on Vercel (vercel.json); this service only runs Socket.IO.
+services:
+  - type: web
+    name: ludo-for-two-api
+    runtime: node
+    plan: free
+    region: singapore # closest free region to India
+    buildCommand: npm --prefix server install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ALLOWED_ORIGINS
+        value: https://ludo-for-two.vercel.app

@@ -1,0 +1,182 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { AddressInfo } from 'node:net';
+import { io as connect, Socket } from 'socket.io-client';
+import { createServer } from '../index.ts';
+import { getRoom } from '../rooms/rooms.ts';
+
+// Scripted dice so the flows are deterministic.
+const diceQueue: number[] = [];
+const { http, io } = createServer({ rollDie: () => diceQueue.shift() ?? 1 });
+let url = '';
+const sockets: Socket[] = [];
+
+beforeAll(() => new Promise<void>((done) => {
+  http.listen(0, () => { url = `http://localhost:${(http.address() as AddressInfo).port}`; done(); });
+}));
+afterAll(() => { sockets.forEach((s) => s.disconnect()); io.close(); });
+
+function client(): Promise<Socket> {
+  const s = connect(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+  sockets.push(s);
+  return new Promise((ok) => s.on('connect', () => ok(s)));
+}
+const call = (s: Socket, ev: string, args: object = {}): Promise<any> =>
+  new Promise((ok) => s.emit(ev, args, ok));
+const nextState = (s: Socket): Promise<any> => new Promise((ok) => s.once('room:state', ok));
+// Resolve on the first state matching pred (skips stale broadcasts still in flight).
+const waitState = (s: Socket, pred: (st: any) => boolean): Promise<any> =>
+  new Promise((ok) => {
+    const h = (st: any) => { if (pred(st)) { s.off('room:state', h); ok(st); } };
+    s.on('room:state', h);
+  });
+
+async function startedGame() {
+  const a = await client();
+  const b = await client();
+  const created = await call(a, 'room:create', { name: 'Akshay', avatar: '🦊' });
+  const joined = await call(b, 'room:join', { code: created.code, name: 'Her', avatar: '🐰' });
+  await call(a, 'room:ready', { ready: true });
+  const started = waitState(a, (st) => st.status === 'playing');
+  await call(b, 'room:ready', { ready: true });
+  return { a, b, created, joined, state: await started };
+}
+
+describe('private rooms', () => {
+  it('creates a room and lets a second player join by code', async () => {
+    const { created, joined, state } = await startedGame();
+    expect(created.ok && joined.ok).toBe(true);
+    expect(created.code).toMatch(/^[A-Z2-9]{6}$/);
+    expect(state.status).toBe('playing');
+    expect(state.players.map((p: any) => p.color)).toEqual(['red', 'yellow']);
+    expect(JSON.stringify(state)).not.toContain(created.secret); // secrets never broadcast
+  });
+
+  it('rejects a third player in a full room', async () => {
+    const a = await client();
+    const b = await client();
+    const c = await client();
+    const { code } = await call(a, 'room:create', { name: 'A' });
+    expect((await call(b, 'room:join', { code, name: 'B' })).ok).toBe(true);
+    const res = await call(c, 'room:join', { code, name: 'C' });
+    expect(res).toMatchObject({ ok: false, error: 'This room is full' });
+  });
+
+  it('rejects unknown rooms, empty names, and non-members', async () => {
+    const c = await client();
+    expect((await call(c, 'room:join', { code: 'NOPE99', name: 'X' })).ok).toBe(false);
+    const { code } = await call(await client(), 'room:create', { name: 'A' });
+    expect((await call(c, 'room:join', { code, name: '   ' })).error).toBe('Enter your name');
+    expect((await call(c, 'game:roll')).error).toBe('Not in a room');
+    expect((await call(c, 'chat:send', { text: 'hi' })).error).toBe('Not in a room');
+  });
+
+  it('cannot impersonate with a forged secret', async () => {
+    const { created } = await startedGame();
+    const c = await client();
+    const res = await call(c, 'room:rejoin', { code: created.code, secret: 'forged' });
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe('turns', () => {
+  it('only the current player can roll; dice comes from the server', async () => {
+    const { b, a } = await startedGame();
+    expect((await call(b, 'game:roll')).error).toBe('Not your turn');
+    diceQueue.push(6);
+    const st = waitState(b, (x) => x.game.dice !== null);
+    expect((await call(a, 'game:roll', { dice: 1 })).ok).toBe(true); // client dice ignored
+    const s = await st;
+    expect(s.game.dice).toBe(6);
+    expect(s.game.legal).toEqual([0, 1, 2, 3]);
+  });
+
+  it('duplicate / simultaneous move attempts apply once', async () => {
+    const { a } = await startedGame();
+    diceQueue.push(6);
+    const s = await new Promise<any>((ok) => { a.once('room:state', ok); a.emit('game:roll', {}, () => {}); });
+    const v = s.game.version;
+    const [r1, r2, r3] = await Promise.all([
+      call(a, 'game:move', { token: 0, version: v }),
+      call(a, 'game:move', { token: 0, version: v }),
+      call(a, 'game:move', { token: 1, version: v }),
+    ]);
+    expect([r1.ok, r2.ok, r3.ok].filter(Boolean).length).toBe(1);
+  });
+});
+
+describe('reconnection', () => {
+  it('rejoin with secret restores the same seat and latest state, no duplicate player', async () => {
+    const { a, b, created } = await startedGame();
+    diceQueue.push(6);
+    await call(a, 'game:roll');
+    const seenDisconnect = waitState(b, (st) => !st.players[0].connected);
+    a.disconnect();
+    const mid = await seenDisconnect;
+    expect(mid.players.find((p: any) => p.id === created.playerId).connected).toBe(false);
+
+    const a2 = await client();
+    const st = nextState(a2);
+    const res = await call(a2, 'room:rejoin', { code: created.code, secret: created.secret });
+    expect(res).toMatchObject({ ok: true, playerId: created.playerId });
+    const s = await st;
+    expect(s.players).toHaveLength(2);
+    expect(s.players[0].connected).toBe(true);
+    expect(s.game.phase).toBe('move'); // the pending move survived
+    expect((await call(a2, 'game:move', { token: 0, version: s.game.version })).ok).toBe(true);
+  });
+
+  it('leaving mid-game forfeits and the other player wins', async () => {
+    const { a, b, joined } = await startedGame();
+    const st = waitState(a, (x) => x.status === 'finished');
+    await call(b, 'room:leave');
+    const s = await st;
+    expect(s.status).toBe('finished');
+    expect(s.game.winner).toBe('red');
+    expect(s.players.find((p: any) => p.id === joined.playerId).left).toBe(true);
+  });
+
+  it('rematch starts a fresh game when everyone votes', async () => {
+    const g = await startedGame();
+    let a = g.a;
+    const { b, created } = g;
+    expect((await call(a, 'game:rematch')).error).toBe('Game is not over');
+    // Seed red one step from winning, then play the winning move over the socket.
+    getRoom(created.code)!.game!.tokens.red = [56, 56, 56, 55];
+    diceQueue.push(1);
+    await call(a, 'game:roll');
+    const over = waitState(b, (st) => st.status === 'finished');
+    const v = getRoom(created.code)!.game!.version;
+    expect((await call(a, 'game:move', { token: 3, version: v })).ok).toBe(true);
+    const s = await over;
+    expect(s.status).toBe('finished');
+    expect(s.game.winner).toBe('red');
+    expect((await call(b, 'game:roll')).ok).toBe(false);
+
+    // refresh on the game-over screen keeps the seat
+    a.disconnect();
+    const a2 = await client();
+    expect((await call(a2, 'room:rejoin', { code: created.code, secret: created.secret })).ok).toBe(true);
+    a = a2;
+
+    await call(a, 'game:rematch');
+    const fresh = waitState(a, (st) => st.status === 'playing');
+    await call(b, 'game:rematch');
+    const f = await fresh;
+    expect(f.status).toBe('playing');
+    expect(f.game.tokens.red).toEqual([-1, -1, -1, -1]);
+  });
+});
+
+describe('chat', () => {
+  it('sanitizes and broadcasts messages and reactions', async () => {
+    const { a, b } = await startedGame();
+    const st = waitState(b, (x) => x.chat.length > 0);
+    await call(a, 'chat:send', { text: '  ❤️ Love you!\u0000  ' });
+    const s = await st;
+    expect(s.chat.at(-1).text).toBe('❤️ Love you!');
+    const r = new Promise<any>((ok) => b.once('chat:reaction', ok));
+    await call(a, 'chat:react', { emoji: '😘' });
+    expect((await r).emoji).toBe('😘');
+    expect((await call(a, 'chat:react', { emoji: '<script>' })).ok).toBe(false);
+  });
+});
