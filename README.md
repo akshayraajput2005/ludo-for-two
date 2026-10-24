@@ -1,5 +1,12 @@
 # Ludo for Two 🎲❤️
 
+**Play:** https://ludo-for-two.vercel.app · **Android app:** https://ludo-for-two.vercel.app/LudoForTwo.apk
+· **Game server:** https://ludo-for-two-api.onrender.com (Render free, Singapore)
+
+Deploying updates: `git push` redeploys the server on Render automatically; run
+`vercel deploy --prod --scope akshaysinghh2005-1376` in this folder to update the website.
+On a laptop, open the site in Chrome/Edge and use "Install as an app" to get a desktop app.
+
 A private, real-time online Ludo game for two people (up to 4) on any phone, tablet, or laptop.
 The server is the referee: it rolls the dice, checks every move, and keeps the official game state.
 The browser only draws the board and sends "roll" or "move token N".
