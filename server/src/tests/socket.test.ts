@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { io as connect, Socket } from 'socket.io-client';
 import { createServer } from '../index.ts';
-import { getRoom } from '../rooms/rooms.ts';
+import { ensurePermanentRooms, getRoom } from '../rooms/rooms.ts';
 
 // Scripted dice so the flows are deterministic.
 const diceQueue: number[] = [];
@@ -246,5 +246,56 @@ describe('bot mode', () => {
     // rejoin reports the current setting so the switch shows correctly
     const a2 = await client();
     expect((await call(a2, 'room:rejoin', { code: created.code, secret: created.secret })).auto).toBe(true);
+  });
+});
+
+describe('permanent room', () => {
+  it('survives being empty, gives your seat back by name, and switches games', async () => {
+    ensurePermanentRooms(['LOVE22']);
+    const a = await client();
+    const b = await client();
+    expect((await call(a, 'room:join', { code: 'love22', name: 'Akshay' })).ok).toBe(true);
+    await call(b, 'room:join', { code: 'LOVE22', name: 'Her' });
+
+    // both leave the lobby -> room still exists
+    await call(a, 'room:leave');
+    await call(b, 'room:leave');
+    expect(getRoom('LOVE22')).toBeTruthy();
+
+    // start Ludo; she drops mid-game and comes back by name on a new device
+    const a2 = await client();
+    const b2 = await client();
+    await call(a2, 'room:join', { code: 'LOVE22', name: 'Akshay' });
+    await call(b2, 'room:join', { code: 'LOVE22', name: 'Her' });
+    await call(a2, 'room:ready', { ready: true });
+    const started = waitState(a2, (s) => s.status === 'playing');
+    await call(b2, 'room:ready', { ready: true });
+    await started;
+    const offline = waitState(a2, (s) => s.players.some((p: any) => !p.connected));
+    b2.disconnect();
+    await offline;
+    const stranger = await client();
+    expect((await call(stranger, 'room:join', { code: 'LOVE22', name: 'Someone' })).ok).toBe(false);
+    const b3 = await client();
+    expect((await call(b3, 'room:join', { code: 'LOVE22', name: 'her' })).ok).toBe(true);
+    expect(getRoom('LOVE22')!.players).toHaveLength(2); // same seat, no duplicate
+
+    // a seat that is online can't be taken by typing its name
+    const imp = await client();
+    expect((await call(imp, 'room:join', { code: 'LOVE22', name: 'Akshay' })).ok).toBe(false);
+
+    // finish the game -> back to lobby -> switch to This or That
+    expect((await call(a2, 'room:kind', { kind: 'tot' })).error).toBe('Finish the Ludo game first');
+    const g = getRoom('LOVE22')!.game!;
+    g.tokens.red = [56, 56, 56, 55];
+    g.current = 0;
+    g.phase = 'roll';
+    diceQueue.push(1);
+    await call(a2, 'game:roll');
+    await call(a2, 'game:move', { token: 3, version: getRoom('LOVE22')!.game!.version });
+    expect(getRoom('LOVE22')!.status).toBe('finished');
+    expect((await call(a2, 'room:lobby')).ok).toBe(true);
+    expect((await call(a2, 'room:kind', { kind: 'tot' })).ok).toBe(true);
+    expect((await call(b3, 'tot:draw', { category: 'intimacy' })).ok).toBe(true);
   });
 });

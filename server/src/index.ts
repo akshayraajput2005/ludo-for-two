@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 import { rollDie } from './game/dice.ts';
-import { roomCount, sweep } from './rooms/rooms.ts';
+import { ensurePermanentRooms, roomCount, sweep } from './rooms/rooms.ts';
 import { registerHandlers, type HandlerOptions } from './sockets/handlers.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +30,7 @@ export function createServer(opts: HandlerOptions = { rollDie }) {
     pingInterval: 10_000,
     pingTimeout: 8_000,
   });
+  ensurePermanentRooms((process.env.PERMANENT_ROOMS ?? '').split(','));
   registerHandlers(io, opts);
   return { http, io };
 }

@@ -5,6 +5,7 @@ import type { Ack } from '../services/socket';
 import { unlockAudio } from '../services/sound';
 import type { Conn } from '../hooks/useRoom';
 import { ConnBadge } from '../components/ui';
+import { MY_ROOM_KEY } from '../hooks/useRoom';
 
 interface Props {
   conn: Conn;
@@ -29,6 +30,7 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
   const [max, setMax] = useState(2);
   const [kind, setKind] = useState<'ludo' | 'tot'>('ludo');
   const [busy, setBusy] = useState(false);
+  const myRoom = (() => { try { return localStorage.getItem(MY_ROOM_KEY); } catch { return null; } })();
   const [error, setError] = useState<string | null>(null);
   // Chrome/Edge offer "install as app"; we show our own button for it.
   const [installEvt, setInstallEvt] = useState<(Event & { prompt(): Promise<void> }) | null>(null);
@@ -85,6 +87,21 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
             </div>
           </fieldset>
         </section>
+
+        {myRoom && !inviteCode && (
+          <button className="btn btn-primary w-full !min-h-14 text-lg" disabled={busy || conn !== 'connected'}
+            onClick={async () => {
+              unlockAudio();
+              if (!name.trim()) return setError('Enter your name first (the same one as last time)');
+              try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ name: name.trim(), avatar })); } catch { /* ignore */ }
+              setBusy(true); setError(null);
+              const res = await onJoin(myRoom, name, avatar);
+              setBusy(false);
+              if (!res.ok) setError(res.error ?? 'Could not open the room');
+            }}>
+            ♾️ Open our room <span className="font-display tracking-widest">{myRoom}</span>
+          </button>
+        )}
 
         <section className="card p-5 space-y-4">
           <div className="grid grid-cols-2 gap-1 p-1 rounded-full btn-ghost" role="tablist">

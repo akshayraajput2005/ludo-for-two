@@ -7,10 +7,11 @@ import Game from './pages/Game';
 import ThisOrThat from './pages/ThisOrThat';
 import { Modal, Toast } from './components/ui';
 
-const inviteCode = new URLSearchParams(location.search).get('room')?.toUpperCase().slice(0, 6) ?? null;
 
 export default function App() {
   const r = useRoom();
+  // Read every render: leaving a room clears ?room= from the URL.
+  const inviteCode = new URLSearchParams(location.search).get('room')?.toUpperCase().slice(0, 12) ?? null;
   const [error, setError] = useState<string | null>(null);
   const toast = error && <Toast text={error} onDone={() => setError(null)} />;
   useEffect(() => { if (error) { const t = setTimeout(() => setError(null), 3000); return () => clearTimeout(t); } }, [error]);

@@ -41,6 +41,7 @@ export type RoomKind = 'ludo' | 'tot';
 export interface Room {
   code: string;
   kind: RoomKind; // which game this room is for, chosen by the creator
+  permanent: boolean; // fixed code from PERMANENT_ROOMS: recreated on boot, never expires
   maxPlayers: number;
   hostId: string;
   status: 'lobby' | 'playing' | 'finished';
@@ -59,12 +60,11 @@ export const MAX_TTL_MS = 12 * 60 * 60_000; // any room
 
 const token = (bytes: number) => randomBytes(bytes).toString('base64url');
 
-export function createRoom(maxPlayers: number, kind: RoomKind = 'ludo'): Room {
-  let code: string;
-  do code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
-  while (rooms.has(code));
+export function createRoom(maxPlayers: number, kind: RoomKind = 'ludo', fixedCode?: string): Room {
+  let code = fixedCode ?? '';
+  while (!code || rooms.has(code)) code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
   const room: Room = {
-    code, kind, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
+    code, kind, permanent: !!fixedCode, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
     chat: [], rematch: [], tot: null, lastActivity: Date.now(),
   };
   rooms.set(code, room);
@@ -89,7 +89,10 @@ export function addPlayer(room: Room, name: string, avatar: string): Player {
 
 export function removePlayer(room: Room, playerId: string) {
   room.players = room.players.filter((p) => p.id !== playerId);
-  if (room.players.length === 0) return deleteRoom(room.code);
+  if (room.players.length === 0) {
+    if (!room.permanent) deleteRoom(room.code);
+    return;
+  }
   if (room.hostId === playerId) room.hostId = room.players[0].id;
 }
 
@@ -108,6 +111,7 @@ export function publicState(room: Room) {
   return {
     code: room.code,
     kind: room.kind,
+    permanent: room.permanent,
     maxPlayers: room.maxPlayers,
     hostId: room.hostId,
     status: room.status,
@@ -131,6 +135,7 @@ export function publicState(room: Room) {
 
 export function sweep(now = Date.now()) {
   for (const room of rooms.values()) {
+    if (room.permanent) continue;
     const nobodyHere = room.players.every((p) => !p.connected);
     if ((nobodyHere && now - room.lastActivity > IDLE_TTL_MS) || now - room.lastActivity > MAX_TTL_MS) {
       rooms.delete(room.code);
@@ -166,4 +171,22 @@ export function pickCard(room: Room, playerId: string, choice: 0 | 1) {
     t.rounds++;
     if (new Set(active.map((p) => t.picks[p.id])).size === 1) t.matches++;
   }
+}
+
+// Rooms whose code never changes (env PERMANENT_ROOMS="ABC123,XYZ789"). Recreated empty on every boot.
+export function ensurePermanentRooms(codes: string[]) {
+  for (const raw of codes) {
+    const code = raw.trim().toUpperCase();
+    if (/^[A-Z0-9]{4,12}$/.test(code) && !rooms.has(code)) createRoom(2, 'ludo', code);
+  }
+}
+
+// Back to the lobby after a finished game (or to switch games): clears the board and ready flags.
+export function resetToLobby(room: Room) {
+  room.players = room.players.filter((p) => !p.left);
+  if (!room.players.some((p) => p.id === room.hostId) && room.players[0]) room.hostId = room.players[0].id;
+  room.players.forEach((p) => { p.ready = false; });
+  room.status = 'lobby';
+  room.game = null;
+  room.rematch = [];
 }

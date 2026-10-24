@@ -42,6 +42,7 @@ export interface PublicPlayer {
 export interface RoomState {
   code: string;
   kind: 'ludo' | 'tot';
+  permanent: boolean;
   maxPlayers: number;
   hostId: string;
   status: 'lobby' | 'playing' | 'finished';

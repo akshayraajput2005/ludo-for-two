@@ -53,7 +53,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
         </div>
 
         <section className="card p-5 text-center space-y-3">
-          <p className="text-sm font-extrabold muted uppercase tracking-wider">{room.kind === 'ludo' ? '🎲 Ludo' : '💞 This or That'} · Room code</p>
+          <p className="text-sm font-extrabold muted uppercase tracking-wider">{room.permanent ? '♾️ Our room' : 'Room code'}</p>
           <button onClick={() => copy('code')} className="font-display text-5xl font-bold tracking-[0.25em] pl-[0.25em] hover:opacity-80" aria-label="Copy room code">
             {room.code}
           </button>
@@ -65,6 +65,18 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
             {(android || 'share' in navigator) && <button className="btn btn-ghost" onClick={share}><Share2 className="size-4" />Share</button>}
           </div>
           {copied === 'code' && <p className="text-xs font-bold text-emerald-600">Code copied</p>}
+          {room.permanent && <p className="text-xs muted">This code works forever. Join with the same name each time to get your seat back.</p>}
+        </section>
+
+        <section className="card p-2">
+          <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Game">
+            {([['ludo', '🎲 Ludo'], ['tot', '💞 This or That']] as const).map(([k, label]) => (
+              <button key={k} role="radio" aria-checked={room.kind === k} onClick={() => room.kind !== k && act('room:kind', { kind: k })}
+                className={`rounded-2xl py-3 font-extrabold transition ${room.kind === k ? 'bg-[color-mix(in_srgb,var(--color-rose)_16%,transparent)] ring-2 ring-[var(--color-rose)]' : 'btn-ghost muted'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </section>
 
         <section className="card p-4 space-y-2">

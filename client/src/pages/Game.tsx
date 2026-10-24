@@ -281,7 +281,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
             )}
             {opponentsGone && <p className="text-sm font-bold mb-1">Everyone else left the room.</p>}
             <div className="flex gap-2 mt-4">
-              <button className="btn btn-ghost flex-1" onClick={onLeave}><HomeIcon className="size-4" />Home</button>
+              <button className="btn btn-ghost flex-1" onClick={() => act('room:lobby')}><HomeIcon className="size-4" />Lobby</button>
               <button className="btn btn-primary flex-1" disabled={opponentsGone || room.rematch.includes(myId)} onClick={() => act('game:rematch')}>
                 <RotateCcw className="size-4" />Rematch
               </button>

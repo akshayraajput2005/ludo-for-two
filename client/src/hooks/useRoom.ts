@@ -12,6 +12,8 @@ function setUrlRoom(code: string | null) {
   history.replaceState(null, '', url);
 }
 
+export const MY_ROOM_KEY = 'ludo:myRoom';
+
 export function useRoom() {
   const [conn, setConn] = useState<Conn>(socket.connected ? 'connected' : 'connecting');
   const [room, setRoom] = useState<RoomState | null>(null);
@@ -49,17 +51,21 @@ export function useRoom() {
       setTimeout(() => setReactions((list) => list.filter((x) => x.id !== r.id)), 2300);
     };
 
+    const onState = (st: RoomState) => {
+      setRoom(st);
+      if (st.permanent) { try { localStorage.setItem(MY_ROOM_KEY, st.code); } catch { /* ignore */ } }
+    };
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onError);
-    socket.on('room:state', setRoom);
+    socket.on('room:state', onState);
     socket.on('chat:reaction', onReaction);
     if (socket.connected) void onConnect();
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onError);
-      socket.off('room:state', setRoom);
+      socket.off('room:state', onState);
       socket.off('chat:reaction', onReaction);
     };
   }, []);

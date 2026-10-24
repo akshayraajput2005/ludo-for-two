@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import type { Server, Socket } from 'socket.io';
 import { botMove, forfeit, move, roll, currentColor } from '../game/engine.ts';
 import {
-  addPlayer, createRoom, drawCard, getRoom, pickCard, Player, publicState, removePlayer, Room, startGame,
+  addPlayer, createRoom, drawCard, getRoom, pickCard, Player, publicState, removePlayer, resetToLobby, Room, startGame,
 } from '../rooms/rooms.ts';
 import { TOT_CATEGORIES, TotCategory } from '../../../shared/questions.ts';
 
@@ -132,8 +133,20 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       if (!name) return ack({ ok: false, error: 'Enter your name' });
       const r = getRoom(cleanCode(args.code));
       if (!r) return ack({ ok: false, error: 'Room not found. Check the code — rooms expire when empty.' });
+      // Permanent room: joining with your old name takes your seat back (only if that seat is offline).
+      const mine = r.permanent && r.players.find((p) => !p.connected && p.name.toLowerCase() === name.toLowerCase());
+      if (mine) {
+        mine.secret = randomBytes(24).toString('base64url'); // old devices lose the seat
+        mine.left = false;
+        mine.avatar = cleanAvatar(args.avatar);
+        bind(r, mine);
+        ack({ ok: true, ...you() });
+        return broadcast(r);
+      }
       if (r.status !== 'lobby') return ack({ ok: false, error: 'This game has already started' });
-      if (r.players.length >= r.maxPlayers) return ack({ ok: false, error: 'This room is full' });
+      if (r.players.length >= r.maxPlayers) {
+        return ack({ ok: false, error: r.permanent ? 'Room is full — join with the same name you used before' : 'This room is full' });
+      }
       bind(r, addPlayer(r, name, cleanAvatar(args.avatar)));
       ack({ ok: true, ...you() });
       broadcast(r);
@@ -168,6 +181,26 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
         return ack({ ok: false, error: 'Need at least 2 players, all ready' });
       }
       startGame(r);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    // Switch this room between Ludo and This or That (not during a running Ludo game).
+    socket.on('room:kind', member((r, _p, args, ack) => {
+      if (r.status === 'playing') return ack({ ok: false, error: 'Finish the Ludo game first' });
+      const kind = args.kind === 'tot' ? 'tot' : 'ludo';
+      if (kind === 'tot' && r.players.length > 2) return ack({ ok: false, error: 'This or That is for 2 players' });
+      resetToLobby(r);
+      r.kind = kind;
+      if (kind === 'tot') r.maxPlayers = 2;
+      r.tot = null;
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('room:lobby', member((r, _p, _args, ack) => {
+      if (r.status !== 'finished') return ack({ ok: false, error: 'Game is still running' });
+      resetToLobby(r);
       ack({ ok: true });
       broadcast(r);
     }));
