@@ -269,6 +269,9 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError }: 
                 <RotateCcw className="size-4" />Rematch
               </button>
             </div>
+            {!opponentsGone && (
+              <button className="btn btn-ghost w-full mt-2" onClick={() => act('tot:draw', { category: 'romantic' })}>💞 Play This or That</button>
+            )}
           </Modal>
         </>
       )}

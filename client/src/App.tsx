@@ -4,6 +4,7 @@ import { useRoom } from './hooks/useRoom';
 import Home from './pages/Home';
 import Lobby from './pages/Lobby';
 import Game from './pages/Game';
+import ThisOrThat from './pages/ThisOrThat';
 import { Modal, Toast } from './components/ui';
 
 const inviteCode = new URLSearchParams(location.search).get('room')?.toUpperCase().slice(0, 6) ?? null;
@@ -45,7 +46,9 @@ export default function App() {
   const common = { room: r.room, myId: r.me.playerId, conn: r.conn, onLeave: r.leave, onError: setError };
   return (
     <>
-      {r.room.status === 'lobby' ? <Lobby {...common} /> : <Game {...common} reactions={r.reactions} />}
+      {r.room.status === 'playing' || r.room.status === 'finished' && !r.room.tot
+        ? <Game {...common} reactions={r.reactions} />
+        : r.room.tot ? <ThisOrThat {...common} reactions={r.reactions} /> : <Lobby {...common} />}
       {toast}
     </>
   );

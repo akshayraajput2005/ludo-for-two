@@ -6,6 +6,8 @@ import { emit } from '../services/socket';
 import { unlockAudio } from '../services/sound';
 import type { Conn } from '../hooks/useRoom';
 import { Avatar, ConnBadge } from '../components/ui';
+import { TOT_CATEGORIES, TOT_LABELS, type TotCategory } from '../../../shared/questions.ts';
+import { AdultGate, adultOk } from './ThisOrThat';
 
 // Native bridge injected by the Android app (WebView has no Web Share / clipboard API).
 const android = (window as unknown as { LudoAndroid?: { share(t: string): void; copy(t: string): void } }).LudoAndroid;
@@ -20,6 +22,7 @@ interface Props {
 
 export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
   const [copied, setCopied] = useState<'link' | 'code' | null>(null);
+  const [gate, setGate] = useState(false);
   const link = `${location.origin}/?room=${room.code}`;
   const me = room.players.find((p) => p.id === myId);
   const isHost = room.hostId === myId;
@@ -91,6 +94,23 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
           </button>
         )}
         <p className="text-center text-xs muted">The game starts when everyone is ready.</p>
+
+        <section className="card p-4 space-y-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold">💞 This or That</h2>
+            <p className="text-sm muted">Pick secretly, then see if you match. Choose a deck:</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {TOT_CATEGORIES.map((c: TotCategory) => (
+              <button key={c} className="btn btn-ghost !min-h-16 flex-col !gap-0.5 !rounded-2xl text-sm" disabled={room.players.length < 2}
+                onClick={() => (c === 'naughty' && !adultOk() ? setGate(true) : act('tot:draw', { category: c }))}>
+                <span className="text-xl">{TOT_LABELS[c].emoji}</span>{TOT_LABELS[c].name}
+              </button>
+            ))}
+          </div>
+          {room.players.length < 2 && <p className="text-xs muted text-center">Opens when your partner joins.</p>}
+        </section>
+        {gate && <AdultGate onNo={() => setGate(false)} onYes={() => { setGate(false); void act('tot:draw', { category: 'naughty' }); }} />}
       </div>
     </main>
   );

@@ -3,6 +3,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { Color, SEATS } from '../../../shared/board.ts';
 import { createGame, Game } from '../game/engine.ts';
+import { QUESTIONS, TotCategory } from '../../../shared/questions.ts';
 
 export interface Player {
   id: string; // public id, shown to others
@@ -23,6 +24,17 @@ export interface ChatMessage {
   at: number;
 }
 
+// "This or That": both pick secretly, picks are revealed once everyone has chosen.
+export interface Tot {
+  category: TotCategory;
+  q: number; // index into QUESTIONS[category]
+  picks: Record<string, 0 | 1>; // playerId -> choice; hidden from clients until revealed
+  revealed: boolean;
+  matches: number;
+  rounds: number;
+  decks: Partial<Record<TotCategory, number[]>>; // remaining shuffled cards per category
+}
+
 export interface Room {
   code: string;
   maxPlayers: number;
@@ -32,6 +44,7 @@ export interface Room {
   game: Game | null;
   chat: ChatMessage[];
   rematch: string[]; // player ids who voted
+  tot: Tot | null;
   lastActivity: number;
 }
 
@@ -48,7 +61,7 @@ export function createRoom(maxPlayers: number): Room {
   while (rooms.has(code));
   const room: Room = {
     code, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
-    chat: [], rematch: [], lastActivity: Date.now(),
+    chat: [], rematch: [], tot: null, lastActivity: Date.now(),
   };
   rooms.set(code, room);
   return room;
@@ -83,6 +96,7 @@ export function startGame(room: Room) {
   room.game = createGame(order);
   room.status = 'playing';
   room.rematch = [];
+  room.tot = null;
 }
 
 // What clients see. Never includes secrets or socket ids.
@@ -98,6 +112,15 @@ export function publicState(room: Room) {
     game: room.game,
     chat: room.chat,
     rematch: room.rematch,
+    tot: room.tot && {
+      category: room.tot.category,
+      q: room.tot.q,
+      picked: Object.keys(room.tot.picks),
+      picks: room.tot.revealed ? room.tot.picks : {}, // never leak a pick early
+      revealed: room.tot.revealed,
+      matches: room.tot.matches,
+      rounds: room.tot.rounds,
+    },
   };
 }
 
@@ -107,5 +130,35 @@ export function sweep(now = Date.now()) {
     if ((nobodyHere && now - room.lastActivity > IDLE_TTL_MS) || now - room.lastActivity > MAX_TTL_MS) {
       rooms.delete(room.code);
     }
+  }
+}
+
+// Next card from a shuffled deck; reshuffles when a deck runs out.
+export function drawCard(room: Room, category: TotCategory) {
+  room.tot ??= { category, q: 0, picks: {}, revealed: false, matches: 0, rounds: 0, decks: {} };
+  const t = room.tot;
+  let deck = t.decks[category];
+  if (!deck?.length) {
+    deck = QUESTIONS[category].map((_, i) => i);
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    t.decks[category] = deck;
+  }
+  t.category = category;
+  t.q = deck.pop()!;
+  t.picks = {};
+  t.revealed = false;
+}
+
+export function pickCard(room: Room, playerId: string, choice: 0 | 1) {
+  const t = room.tot!;
+  t.picks[playerId] = choice;
+  const active = room.players.filter((p) => !p.left);
+  if (active.every((p) => p.id in t.picks)) {
+    t.revealed = true;
+    t.rounds++;
+    if (new Set(active.map((p) => t.picks[p.id])).size === 1) t.matches++;
   }
 }

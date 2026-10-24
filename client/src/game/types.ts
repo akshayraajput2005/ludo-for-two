@@ -48,6 +48,15 @@ export interface RoomState {
   game: Game | null;
   chat: { id: number; playerId: string; text: string; at: number }[];
   rematch: string[];
+  tot: {
+    category: 'romantic' | 'intimacy' | 'naughty';
+    q: number;
+    picked: string[];
+    picks: Record<string, 0 | 1>;
+    revealed: boolean;
+    matches: number;
+    rounds: number;
+  } | null;
 }
 
 export const AVATARS = ['🦊', '🐼', '🐱', '🐶', '🐰', '🦁', '🐸', '🐧', '🦄', '🐻', '🌸', '⭐'];

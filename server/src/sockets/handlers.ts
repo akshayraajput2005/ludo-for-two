@@ -1,8 +1,9 @@
 import type { Server, Socket } from 'socket.io';
 import { forfeit, move, roll, currentColor } from '../game/engine.ts';
 import {
-  addPlayer, createRoom, getRoom, Player, publicState, removePlayer, Room, startGame,
+  addPlayer, createRoom, drawCard, getRoom, pickCard, Player, publicState, removePlayer, Room, startGame,
 } from '../rooms/rooms.ts';
+import { TOT_CATEGORIES, TotCategory } from '../../../shared/questions.ts';
 
 export const AVATARS = ['🦊', '🐼', '🐱', '🐶', '🐰', '🦁', '🐸', '🐧', '🦄', '🐻', '🌸', '⭐'];
 export const REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👏', '🔥', '😘'];
@@ -187,6 +188,33 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       if (active.length < 2) return ack({ ok: false, error: 'Not enough players for a rematch' });
       if (!r.rematch.includes(p.id)) r.rematch.push(p.id);
       if (active.every((x) => r.rematch.includes(x.id))) startGame(r);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    // ---- This or That ----
+    socket.on('tot:draw', member((r, _p, args, ack) => {
+      if (r.status === 'playing') return ack({ ok: false, error: 'Finish the Ludo game first' });
+      const cat = args.category ?? r.tot?.category;
+      if (!TOT_CATEGORIES.includes(cat)) return ack({ ok: false, error: 'Unknown category' });
+      drawCard(r, cat as TotCategory);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('tot:pick', member((r, p, args, ack) => {
+      const t = r.tot;
+      if (!t) return ack({ ok: false, error: 'No question open' });
+      if (t.revealed) return ack({ ok: false, error: 'Already revealed' });
+      if (p.id in t.picks) return ack({ ok: false, error: 'You already picked' });
+      if (args.choice !== 0 && args.choice !== 1) return ack({ ok: false, error: 'Invalid choice' });
+      pickCard(r, p.id, args.choice);
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
+    socket.on('tot:close', member((r, _p, _args, ack) => {
+      r.tot = null;
       ack({ ok: true });
       broadcast(r);
     }));

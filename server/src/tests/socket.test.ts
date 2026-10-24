@@ -180,3 +180,31 @@ describe('chat', () => {
     expect((await call(a, 'chat:react', { emoji: '<script>' })).ok).toBe(false);
   });
 });
+
+describe('this or that', () => {
+  it('hides picks until both choose, then reveals and counts matches', async () => {
+    const a = await client();
+    const b = await client();
+    const { code } = await call(a, 'room:create', { name: 'A' });
+    await call(b, 'room:join', { code, name: 'B' });
+    expect((await call(a, 'tot:draw', { category: 'nope' })).ok).toBe(false);
+    expect((await call(a, 'tot:draw', { category: 'naughty' })).ok).toBe(true);
+
+    const afterA = waitState(b, (st) => st.tot?.picked.length === 1);
+    await call(a, 'tot:pick', { choice: 1 });
+    const s1 = await afterA;
+    expect(s1.tot.revealed).toBe(false);
+    expect(s1.tot.picks).toEqual({}); // B can't see A's answer yet
+    expect((await call(a, 'tot:pick', { choice: 0 })).error).toBe('You already picked');
+
+    const done = waitState(a, (st) => st.tot?.revealed);
+    await call(b, 'tot:pick', { choice: 1 });
+    const s2 = await done;
+    expect(Object.values(s2.tot.picks)).toEqual([1, 1]);
+    expect(s2.tot).toMatchObject({ matches: 1, rounds: 1, category: 'naughty' });
+
+    const next = waitState(a, (st) => st.tot && !st.tot.revealed);
+    await call(b, 'tot:draw', {});
+    expect((await next).tot.picked).toEqual([]);
+  });
+});
