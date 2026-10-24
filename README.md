@@ -3,7 +3,8 @@
 **Play:** https://ludo-for-two.vercel.app · **Android app:** https://ludo-for-two.vercel.app/LudoForTwo.apk
 · **Game server:** https://ludo-for-two-api.onrender.com (Render free, Singapore)
 
-Deploying updates: `git push` redeploys the server on Render automatically; run
+Deploying updates: after `git push`, open the Render dashboard → ludo-for-two blueprint → **Manual sync** (or the
+service → **Manual Deploy**) to update the server; run
 `vercel deploy --prod --scope akshaysinghh2005-1376` in this folder to update the website.
 On a laptop, open the site in Chrome/Edge and use "Install as an app" to get a desktop app.
 
