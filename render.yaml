@@ -14,3 +14,6 @@ services:
         value: "22"
       - key: ALLOWED_ORIGINS
         value: https://ludo-for-two.vercel.app
+      # Permanent room code(s), set in the Render dashboard only (kept out of this public repo).
+      - key: PERMANENT_ROOMS
+        sync: false

@@ -6,6 +6,8 @@
 Deploying updates: after `git push`, open the Render dashboard → ludo-for-two blueprint → **Manual sync** (or the
 service → **Manual Deploy**) to update the server; run
 `vercel deploy --prod --scope akshaysinghh2005-1376` in this folder to update the website.
+Permanent room: codes listed in the Render env var `PERMANENT_ROOMS` (comma-separated) always exist and never expire.
+Join with the same name as before to get your seat back; switch between Ludo and This or That in the lobby.
 On a laptop, open the site in Chrome/Edge and use "Install as an app" to get a desktop app.
 
 A private, real-time online Ludo game for two people (up to 4) on any phone, tablet, or laptop.
