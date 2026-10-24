@@ -123,6 +123,11 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
             <Download className="size-4" />Install as an app on this device
           </button>
         )}
+        {/Android/i.test(navigator.userAgent) && !('LudoAndroid' in window) && (
+          <a className="btn btn-ghost w-full" href="/LudoForTwo.apk" download>
+            <Download className="size-4" />Get the Android app (.apk)
+          </a>
+        )}
         <p className="text-center text-xs muted">No sign-up. Your name only lives in this game room.</p>
       </div>
     </main>
