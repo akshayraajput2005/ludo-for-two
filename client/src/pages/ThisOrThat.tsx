@@ -76,7 +76,7 @@ export default function ThisOrThat({ room, myId, conn, reactions, onError }: Pro
     <main className="min-h-dvh safe-pad flex flex-col items-center">
       <div className="w-full max-w-lg flex flex-col gap-4 flex-1">
         <div className="flex items-center gap-2">
-          <button className="btn btn-ghost !min-h-9 !px-3 text-sm" onClick={() => act('tot:close')}><ArrowLeft className="size-4" />Lobby</button>
+          <button className="btn btn-ghost !min-h-9 !px-3 text-sm" onClick={() => act('tot:close')}><ArrowLeft className="size-4" />Decks</button>
           <span className="font-display font-bold tracking-widest text-sm btn-ghost rounded-full px-3 py-1">{room.code}</span>
           <ConnBadge conn={conn} compact />
           <div className="flex-1" />

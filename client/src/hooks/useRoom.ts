@@ -75,8 +75,8 @@ export function useRoom() {
     return res;
   };
 
-  const create = useCallback(async (name: string, avatar: string, maxPlayers: number) =>
-    enter(await emit('room:create', { name, avatar, maxPlayers })), []);
+  const create = useCallback(async (name: string, avatar: string, maxPlayers: number, kind: 'ludo' | 'tot') =>
+    enter(await emit('room:create', { name, avatar, maxPlayers, kind })), []);
 
   const join = useCallback(async (code: string, name: string, avatar: string) =>
     enter(await emit('room:join', { code, name, avatar })), []);

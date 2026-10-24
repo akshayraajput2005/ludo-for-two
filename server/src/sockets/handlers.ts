@@ -118,8 +118,9 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       if (!joinOk()) return ack({ ok: false, error: 'Too many attempts, wait a moment' });
       const name = cleanName(args.name);
       if (!name) return ack({ ok: false, error: 'Enter your name' });
-      const max = [2, 3, 4].includes(args.maxPlayers) ? args.maxPlayers : 2;
-      const r = createRoom(max);
+      const kind = args.kind === 'tot' ? 'tot' : 'ludo';
+      const max = kind === 'ludo' && [2, 3, 4].includes(args.maxPlayers) ? args.maxPlayers : 2;
+      const r = createRoom(max, kind);
       bind(r, addPlayer(r, name, cleanAvatar(args.avatar)));
       ack({ ok: true, ...you() });
       broadcast(r);
@@ -150,6 +151,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
     }));
 
     socket.on('room:ready', member((r, p, args, ack) => {
+      if (r.kind !== 'ludo') return ack({ ok: false, error: 'This room is for This or That' });
       if (r.status !== 'lobby') return ack({ ok: false, error: 'Game already started' });
       p.ready = !!args.ready;
       const all = r.players.every((x) => x.ready);
@@ -159,6 +161,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
     }));
 
     socket.on('room:start', member((r, p, _args, ack) => {
+      if (r.kind !== 'ludo') return ack({ ok: false, error: 'This room is for This or That' });
       if (r.status !== 'lobby') return ack({ ok: false, error: 'Game already started' });
       if (r.hostId !== p.id) return ack({ ok: false, error: 'Only the host can start' });
       if (r.players.length < 2 || !r.players.every((x) => x.ready)) {
@@ -216,6 +219,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
     }));
 
     socket.on('game:rematch', member((r, p, _args, ack) => {
+      if (r.kind !== 'ludo') return ack({ ok: false, error: 'No Ludo game here' });
       if (r.status !== 'finished') return ack({ ok: false, error: 'Game is not over' });
       const active = r.players.filter((x) => !x.left);
       if (active.length < 2) return ack({ ok: false, error: 'Not enough players for a rematch' });
@@ -227,6 +231,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
 
     // ---- This or That ----
     socket.on('tot:draw', member((r, _p, args, ack) => {
+      if (r.kind !== 'tot') return ack({ ok: false, error: 'This room is for Ludo' });
       if (r.status === 'playing') return ack({ ok: false, error: 'Finish the Ludo game first' });
       const cat = args.category ?? r.tot?.category;
       if (!TOT_CATEGORIES.includes(cat)) return ack({ ok: false, error: 'Unknown category' });

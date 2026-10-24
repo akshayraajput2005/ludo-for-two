@@ -46,7 +46,7 @@ export default function App() {
   const common = { room: r.room, myId: r.me.playerId, conn: r.conn, onLeave: r.leave, onError: setError };
   return (
     <>
-      {r.room.status === 'playing' || r.room.status === 'finished' && !r.room.tot
+      {r.room.kind === 'ludo' && r.room.status !== 'lobby'
         ? <Game {...common} reactions={r.reactions} auto={r.auto} onAuto={r.setAuto} />
         : r.room.tot ? <ThisOrThat {...common} reactions={r.reactions} /> : <Lobby {...common} />}
       {toast}

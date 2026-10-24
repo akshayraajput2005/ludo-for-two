@@ -36,8 +36,11 @@ export interface Tot {
   decks: Partial<Record<TotCategory, number[]>>; // remaining shuffled cards per category
 }
 
+export type RoomKind = 'ludo' | 'tot';
+
 export interface Room {
   code: string;
+  kind: RoomKind; // which game this room is for, chosen by the creator
   maxPlayers: number;
   hostId: string;
   status: 'lobby' | 'playing' | 'finished';
@@ -56,12 +59,12 @@ export const MAX_TTL_MS = 12 * 60 * 60_000; // any room
 
 const token = (bytes: number) => randomBytes(bytes).toString('base64url');
 
-export function createRoom(maxPlayers: number): Room {
+export function createRoom(maxPlayers: number, kind: RoomKind = 'ludo'): Room {
   let code: string;
   do code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
   while (rooms.has(code));
   const room: Room = {
-    code, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
+    code, kind, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
     chat: [], rematch: [], tot: null, lastActivity: Date.now(),
   };
   rooms.set(code, room);
@@ -104,6 +107,7 @@ export function startGame(room: Room) {
 export function publicState(room: Room) {
   return {
     code: room.code,
+    kind: room.kind,
     maxPlayers: room.maxPlayers,
     hostId: room.hostId,
     status: room.status,

@@ -10,7 +10,7 @@ interface Props {
   conn: Conn;
   notice: string | null;
   inviteCode: string | null;
-  onCreate: (name: string, avatar: string, max: number) => Promise<Ack>;
+  onCreate: (name: string, avatar: string, max: number, kind: 'ludo' | 'tot') => Promise<Ack>;
   onJoin: (code: string, name: string, avatar: string) => Promise<Ack>;
 }
 
@@ -27,6 +27,7 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
   const [tab, setTab] = useState<'create' | 'join'>(inviteCode ? 'join' : 'create');
   const [code, setCode] = useState(inviteCode ?? '');
   const [max, setMax] = useState(2);
+  const [kind, setKind] = useState<'ludo' | 'tot'>('ludo');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Chrome/Edge offer "install as app"; we show our own button for it.
@@ -43,7 +44,7 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
     try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ name: name.trim(), avatar })); } catch { /* ignore */ }
     setBusy(true);
     setError(null);
-    const res = tab === 'create' ? await onCreate(name, avatar, max) : await onJoin(code, name, avatar);
+    const res = tab === 'create' ? await onCreate(name, avatar, max, kind) : await onJoin(code, name, avatar);
     setBusy(false);
     if (!res.ok) setError(res.error ?? 'Something went wrong');
   };
@@ -96,6 +97,21 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
           </div>
 
           {tab === 'create' ? (
+            <div className="space-y-4">
+            <div className="space-y-1.5">
+              <span className="text-sm font-extrabold">Choose a game</span>
+              <div className="grid grid-cols-2 gap-2">
+                {([['ludo', '🎲', 'Ludo', 'Classic board game'], ['tot', '💞', 'This or That', 'Romantic · Intimacy · 18+']] as const).map(([k, emoji, title, sub]) => (
+                  <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
+                    className={`rounded-2xl p-3 text-center transition border-2 ${kind === k ? 'border-[var(--color-rose)] bg-[color-mix(in_srgb,var(--color-rose)_12%,transparent)]' : 'border-transparent btn-ghost'}`}>
+                    <span className="block text-3xl">{emoji}</span>
+                    <span className="block font-extrabold">{title}</span>
+                    <span className="block text-[11px] muted font-bold">{sub}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {kind === 'ludo' && (
             <div className="space-y-1.5">
               <span className="text-sm font-extrabold">Players</span>
               <div className="flex gap-2">
@@ -104,6 +120,8 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
                     className={`btn flex-1 ${max === n ? 'btn-primary' : 'btn-ghost'}`}>{n}{n === 2 ? ' 💑' : ''}</button>
                 ))}
               </div>
+            </div>
+            )}
             </div>
           ) : (
             <label className="block space-y-1.5">
@@ -115,7 +133,7 @@ export default function Home({ conn, notice, inviteCode, onCreate, onJoin }: Pro
 
           <button className="btn btn-primary w-full !min-h-12 text-lg" disabled={busy || conn !== 'connected' || (tab === 'join' && code.length !== 6)} onClick={submit}>
             {busy ? <Loader2 className="size-5 animate-spin" /> : tab === 'create' ? <Plus className="size-5" /> : <LogIn className="size-5" />}
-            {tab === 'create' ? 'Create private room' : 'Join game'}
+            {tab === 'join' ? 'Join game' : kind === 'ludo' ? 'Create Ludo room' : 'Create This or That room'}
           </button>
         </section>
         {installEvt && (

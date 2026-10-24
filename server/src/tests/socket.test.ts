@@ -182,10 +182,26 @@ describe('chat', () => {
 });
 
 describe('this or that', () => {
+  it('Ludo and This or That are separate room types', async () => {
+    const a = await client();
+    const b = await client();
+    const ludo = await call(a, 'room:create', { name: 'A' });
+    await call(b, 'room:join', { code: ludo.code, name: 'B' });
+    expect((await call(a, 'tot:draw', { category: 'romantic' })).error).toBe('This room is for Ludo');
+    const c = await client();
+    const d = await client();
+    const tot = await call(c, 'room:create', { name: 'C', kind: 'tot', maxPlayers: 4 });
+    const st = waitState(d, (x) => x.players.length === 2);
+    await call(d, 'room:join', { code: tot.code, name: 'D' });
+    const s = await st;
+    expect(s).toMatchObject({ kind: 'tot', maxPlayers: 2 }); // always 2 players
+    expect((await call(c, 'room:ready', { ready: true })).error).toBe('This room is for This or That');
+  });
+
   it('hides picks until both choose, then reveals and counts matches', async () => {
     const a = await client();
     const b = await client();
-    const { code } = await call(a, 'room:create', { name: 'A' });
+    const { code } = await call(a, 'room:create', { name: 'A', kind: 'tot' });
     await call(b, 'room:join', { code, name: 'B' });
     expect((await call(a, 'tot:draw', { category: 'nope' })).ok).toBe(false);
     expect((await call(a, 'tot:draw', { category: 'naughty' })).ok).toBe(true);

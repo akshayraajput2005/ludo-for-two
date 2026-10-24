@@ -26,6 +26,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
   const link = `${location.origin}/?room=${room.code}`;
   const me = room.players.find((p) => p.id === myId);
   const isHost = room.hostId === myId;
+  const isLudo = room.kind === 'ludo';
   const allReady = room.players.length >= 2 && room.players.every((p) => p.ready);
 
   const copy = async (what: 'link' | 'code') => {
@@ -52,7 +53,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
         </div>
 
         <section className="card p-5 text-center space-y-3">
-          <p className="text-sm font-extrabold muted uppercase tracking-wider">Room code</p>
+          <p className="text-sm font-extrabold muted uppercase tracking-wider">{room.kind === 'ludo' ? '🎲 Ludo' : '💞 This or That'} · Room code</p>
           <button onClick={() => copy('code')} className="font-display text-5xl font-bold tracking-[0.25em] pl-[0.25em] hover:opacity-80" aria-label="Copy room code">
             {room.code}
           </button>
@@ -73,9 +74,9 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
               <Avatar p={p} />
               <div className="flex-1 min-w-0">
                 <p className="font-extrabold truncate">{p.name}{p.id === myId && <span className="muted font-semibold"> (you)</span>}</p>
-                <p className="text-xs muted font-bold capitalize">{p.color}{room.hostId === p.id ? ' · host' : ''}{!p.connected ? ' · offline' : ''}</p>
+                <p className="text-xs muted font-bold capitalize">{isLudo ? p.color : 'player'}{room.hostId === p.id ? ' · host' : ''}{!p.connected ? ' · offline' : ''}</p>
               </div>
-              <span className={`text-xs font-extrabold rounded-full px-2.5 py-1 ${p.ready ? 'bg-emerald-500 text-white' : 'btn-ghost muted'}`}>{p.ready ? 'Ready' : 'Not ready'}</span>
+              {isLudo && <span className={`text-xs font-extrabold rounded-full px-2.5 py-1 ${p.ready ? 'bg-emerald-500 text-white' : 'btn-ghost muted'}`}>{p.ready ? 'Ready' : 'Not ready'}</span>}
             </div>
           ) : (
             <div key={`empty${i}`} className="flex items-center gap-3 rounded-2xl p-2.5 border-2 border-dashed border-[var(--line)]">
@@ -85,6 +86,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
           ))}
         </section>
 
+        {isLudo ? (<>
         <button className={`btn w-full !min-h-14 text-lg ${me?.ready ? 'btn-ghost' : 'btn-primary'}`} onClick={() => act('room:ready', { ready: !me?.ready })}>
           {me?.ready ? 'Not ready yet' : "I'm ready! 🎲"}
         </button>
@@ -94,15 +96,15 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
           </button>
         )}
         <p className="text-center text-xs muted">The game starts when everyone is ready.</p>
-
+        </>) : (
         <section className="card p-4 space-y-3">
           <div>
-            <h2 className="font-display text-lg font-semibold">💞 This or That</h2>
-            <p className="text-sm muted">Pick secretly, then see if you match. Choose a deck:</p>
+            <h2 className="font-display text-lg font-semibold">💞 Choose a deck</h2>
+            <p className="text-sm muted">Each card has two options. You both pick secretly, then see if you match.</p>
           </div>
           <div className="grid grid-cols-3 gap-2">
             {TOT_CATEGORIES.map((c: TotCategory) => (
-              <button key={c} className="btn btn-ghost !min-h-16 flex-col !gap-0.5 !rounded-2xl text-sm" disabled={room.players.length < 2}
+              <button key={c} className="btn btn-ghost !min-h-20 flex-col !gap-0.5 !rounded-2xl text-sm" disabled={room.players.length < 2}
                 onClick={() => (c === 'naughty' && !adultOk() ? setGate(true) : act('tot:draw', { category: c }))}>
                 <span className="text-xl">{TOT_LABELS[c].emoji}</span>{TOT_LABELS[c].name}
               </button>
@@ -110,6 +112,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
           </div>
           {room.players.length < 2 && <p className="text-xs muted text-center">Opens when your partner joins.</p>}
         </section>
+        )}
         {gate && <AdultGate onNo={() => setGate(false)} onYes={() => { setGate(false); void act('tot:draw', { category: 'naughty' }); }} />}
       </div>
     </main>
