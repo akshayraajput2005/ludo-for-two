@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { Server, Socket } from 'socket.io';
 import { botMove, forfeit, move, roll, currentColor } from '../game/engine.ts';
 import {
-  addPlayer, createRoom, drawCard, getRoom, pickCard, Player, publicState, removePlayer, resetToLobby, Room, startGame,
+  addPlayer, createRoom, drawCard, getRoom, owns, pickCard, Player, publicState, removePlayer, resetToLobby, Room, startGame,
 } from '../rooms/rooms.ts';
 import { TOT_CATEGORIES, TotCategory } from '../../../shared/questions.ts';
 
@@ -65,12 +65,13 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
     clearTimeout(botTimers.get(room));
     const g = room.game;
     if (room.status !== 'playing' || !g || g.phase === 'over') return;
-    const p = room.players.find((x) => x.color === currentColor(g));
+    const p = room.players.find((x) => owns(x, currentColor(g)));
     if (!p?.auto || p.left) return;
     const version = g.version;
     botTimers.set(room, setTimeout(() => {
       if (getRoom(room.code) !== room || room.game !== g || g.version !== version || !p.auto) return;
-      const res = g.phase === 'roll' ? roll(g, p.color, opts.rollDie()) : move(g, p.color, botMove(g, p.color));
+      const c = currentColor(g);
+      const res = g.phase === 'roll' ? roll(g, c, opts.rollDie()) : move(g, c, botMove(g, c));
       if (res.ok) {
         if (g.phase === 'over') room.status = 'finished';
         broadcast(room);
@@ -198,6 +199,14 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       broadcast(r);
     }));
 
+    socket.on('room:pairs', member((r, _p, args, ack) => {
+      if (r.kind !== 'ludo' || r.maxPlayers !== 2) return ack({ ok: false, error: 'Only for 2-player Ludo' });
+      if (r.status === 'playing') return ack({ ok: false, error: 'Finish the Ludo game first' });
+      r.pairs = !!args.on;
+      ack({ ok: true });
+      broadcast(r);
+    }));
+
     socket.on('room:lobby', member((r, _p, _args, ack) => {
       if (r.status !== 'finished') return ack({ ok: false, error: 'Game is still running' });
       resetToLobby(r);
@@ -217,6 +226,7 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
         p.socketId = null;
         if (r.status === 'playing' && r.game) {
           forfeit(r.game, p.color);
+          if (p.color2) forfeit(r.game, p.color2);
           if (r.game.phase === 'over') r.status = 'finished';
         }
         if (r.hostId === p.id) r.hostId = r.players.find((x) => !x.left)?.id ?? p.id;
@@ -235,8 +245,8 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
     socket.on('game:roll', member((r, p, _args, ack) => {
       const g = r.game;
       if (r.status !== 'playing' || !g) return ack({ ok: false, error: 'No game in progress' });
-      if (currentColor(g) !== p.color) return ack({ ok: false, error: 'Not your turn' });
-      const res = roll(g, p.color, opts.rollDie());
+      if (!owns(p, currentColor(g))) return ack({ ok: false, error: 'Not your turn' });
+      const res = roll(g, currentColor(g), opts.rollDie());
       ack(res);
       if (res.ok) broadcast(r);
     }));
@@ -245,7 +255,8 @@ export function registerHandlers(io: Server, opts: HandlerOptions) {
       const g = r.game;
       if (r.status !== 'playing' || !g) return ack({ ok: false, error: 'No game in progress' });
       if (args.version !== g.version) return ack({ ok: false, error: 'Out of date, try again' });
-      const res = move(g, p.color, Number(args.token));
+      if (!owns(p, currentColor(g))) return ack({ ok: false, error: 'Not your turn' });
+      const res = move(g, currentColor(g), Number(args.token));
       if (res.ok && g.phase === 'over') r.status = 'finished';
       ack(res);
       if (res.ok) broadcast(r);

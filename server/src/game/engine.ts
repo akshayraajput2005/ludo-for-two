@@ -17,6 +17,7 @@ export interface GameEvent {
 
 export interface Game {
   order: Color[]; // turn order
+  teams: Color[][]; // colors played by one person; a team wins when all its colors are home
   out: Color[]; // players who left the match
   current: number; // index into order
   phase: Phase;
@@ -34,16 +35,17 @@ export type Result = { ok: true } | { ok: false; error: string };
 
 const MAX_EVENTS = 30;
 
-export function createGame(order: Color[]): Game {
+export function createGame(order: Color[], teams: Color[][] = order.map((c) => [c])): Game {
   const tokens: Record<string, number[]> = {};
   for (const c of order) tokens[c] = [BASE, BASE, BASE, BASE];
   return {
-    order, out: [], current: 0, phase: 'roll', dice: null, sixStreak: 0,
+    order, teams, out: [], current: 0, phase: 'roll', dice: null, sixStreak: 0,
     tokens, legal: [], winner: null, version: 0, events: [], lastMove: null,
   };
 }
 
 export const currentColor = (g: Game) => g.order[g.current];
+const teamOf = (g: Game, color: Color) => g.teams.find((t) => t.includes(color)) ?? [color];
 
 export function canMove(pos: number, dice: number, rules: Rules = RULES): boolean {
   if (pos === BASE) return !rules.sixToLeaveBase || dice === 6;
@@ -93,6 +95,10 @@ export function roll(g: Game, color: Color, dice: number, rules: Rules = RULES):
     nextTurn(g);
     return { ok: true };
   }
+  if (dice === 6 && rules.sixRerolls) {
+    sameTurnAgain(g);
+    return { ok: true };
+  }
   g.legal = legalMoves(g, color, dice, rules);
   if (g.legal.length === 0) {
     log(g, { type: 'no-move', color, dice });
@@ -137,7 +143,7 @@ export function move(g: Game, color: Color, token: number, rules: Rules = RULES)
   const finished = to === FINISH;
   if (finished) log(g, { type: 'finish', color, token });
 
-  if (g.tokens[color].every((p) => p === FINISH)) {
+  if (teamOf(g, color).every((c) => g.tokens[c].every((p) => p === FINISH))) {
     endGame(g, color);
     return { ok: true };
   }
@@ -164,8 +170,8 @@ export function forfeit(g: Game, color: Color) {
   g.version++;
   g.out.push(color);
   log(g, { type: 'forfeit', color });
-  const remaining = g.order.filter((c) => !g.out.includes(c));
-  if (remaining.length === 1) return endGame(g, remaining[0]);
+  const remaining = g.teams.filter((t) => t.some((c) => !g.out.includes(c)));
+  if (remaining.length === 1) return endGame(g, remaining[0][0]);
   if (currentColor(g) === color) nextTurn(g);
 }
 

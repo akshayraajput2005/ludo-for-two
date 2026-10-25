@@ -30,10 +30,11 @@ const canUseBot = (name: string) => name.toLowerCase().replace(/\s+/g, '') === '
 export default function Game({ room, myId, conn, reactions, onLeave, onError, auto, onAuto }: Props) {
   const game = room.game!;
   const me = room.players.find((p) => p.id === myId)!;
-  const byColor = new Map(room.players.map((p) => [p.color, p]));
+  const byColor = new Map(room.players.flatMap((p) => (p.color2 ? [[p.color, p], [p.color2, p]] : [[p.color, p]]) as [Color, typeof p][]));
   const currentColor = game.order[game.current];
   const currentPlayer = byColor.get(currentColor);
-  const myTurn = currentColor === me.color && game.phase !== 'over';
+  const mine = (c: Color) => byColor.get(c)?.id === myId;
+  const myTurn = mine(currentColor) && game.phase !== 'over';
 
   // ---- visual layer: tokens animate step by step behind the authoritative state ----
   const [display, setDisplay] = useState(game.tokens);
@@ -49,7 +50,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
   useEffect(() => {
     const fresh = game.events.filter((e) => e.id > seenEvent.current);
     seenEvent.current = Math.max(seenEvent.current, ...game.events.map((e) => e.id));
-    const name = (c: Color) => (c === me.color ? 'You' : byColor.get(c)?.name ?? c);
+    const name = (c: Color) => (mine(c) ? 'You' : byColor.get(c)?.name ?? c);
     const has = (t: GameEvent['type']) => fresh.some((e) => e.type === t);
 
     if (has('roll')) {
@@ -59,7 +60,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
         setRolling(false);
         const nm = fresh.find((e) => e.type === 'no-move');
         if (nm) setToast(`${name(nm.color)} rolled ${nm.dice} — no move`);
-        if (has('three-sixes')) setToast(`Three sixes in a row! ${name(fresh[0].color)} lose${fresh[0].color === me.color ? '' : 's'} the turn`);
+        if (has('three-sixes')) setToast(`Three sixes in a row! ${name(fresh[0].color)} lose${mine(fresh[0].color) ? '' : 's'} the turn`);
       }, ROLL_MS);
     }
     if (has('forfeit')) setToast(`${name(fresh.find((e) => e.type === 'forfeit')!.color)} left the game`);
@@ -201,7 +202,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
       <div className="[grid-area:board] board-area relative min-h-0 min-w-0">
         <div className="board-wrap rounded-[1.4rem] shadow-[0_20px_50px_-25px_rgb(60_20_50/.55)]">
           <Board tokens={display} activeColors={game.order} current={game.phase === 'over' ? null : currentColor}
-            legal={legal} myColor={me.color} onPick={(t) => act('game:move', { token: t, version: game.version })} />
+            legal={legal} myColor={myTurn ? currentColor : me.color} onPick={(t) => act('game:move', { token: t, version: game.version })} />
         </div>
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
           {reactions.map((r, i) => (
@@ -275,7 +276,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
           <Modal>
             <div className="text-6xl mb-2">{winner.id === myId ? '🏆' : '💐'}</div>
             <h2 className="font-display text-3xl font-bold mb-1">{winner.id === myId ? 'You won!' : `${winner.name} won!`}</h2>
-            <p className="muted mb-1">{winner.avatar} {game.tokens[winner.color].every((t) => t === 56) ? 'brought all four tokens home.' : 'won because the others left.'}</p>
+            <p className="muted mb-1">{winner.avatar} {game.tokens[game.winner!].every((t) => t === 56) ? `brought all ${winner.color2 ? 'eight' : 'four'} tokens home.` : 'won because the others left.'}</p>
             {room.rematch.length > 0 && !opponentsGone && (
               <p className="text-sm font-bold mb-1">{room.rematch.includes(myId) ? 'Waiting for the rematch vote…' : 'Rematch requested! 🔁'}</p>
             )}

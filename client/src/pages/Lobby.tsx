@@ -86,7 +86,7 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
               <Avatar p={p} />
               <div className="flex-1 min-w-0">
                 <p className="font-extrabold truncate">{p.name}{p.id === myId && <span className="muted font-semibold"> (you)</span>}</p>
-                <p className="text-xs muted font-bold capitalize">{isLudo ? p.color : 'player'}{room.hostId === p.id ? ' · host' : ''}{!p.connected ? ' · offline' : ''}</p>
+                <p className="text-xs muted font-bold capitalize">{isLudo ? (room.pairs && room.maxPlayers === 2 ? `${p.color} + ${p.color === 'red' ? 'green' : 'blue'}` : p.color) : 'player'}{room.hostId === p.id ? ' · host' : ''}{!p.connected ? ' · offline' : ''}</p>
               </div>
               {isLudo && <span className={`text-xs font-extrabold rounded-full px-2.5 py-1 ${p.ready ? 'bg-emerald-500 text-white' : 'btn-ghost muted'}`}>{p.ready ? 'Ready' : 'Not ready'}</span>}
             </div>
@@ -99,6 +99,18 @@ export default function Lobby({ room, myId, conn, onLeave, onError }: Props) {
         </section>
 
         {isLudo ? (<>
+        {room.maxPlayers === 2 && (
+          <section className="card p-2">
+            <div className="grid grid-cols-2 gap-1" role="radiogroup" aria-label="Colours per player">
+              {([[false, '1 colour each'], [true, '2 colours each']] as const).map(([on, label]) => (
+                <button key={label} role="radio" aria-checked={room.pairs === on} onClick={() => room.pairs !== on && act('room:pairs', { on })}
+                  className={`rounded-2xl py-3 font-extrabold transition ${room.pairs === on ? 'bg-[color-mix(in_srgb,var(--color-rose)_16%,transparent)] ring-2 ring-[var(--color-rose)]' : 'btn-ghost muted'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
         <button className={`btn w-full !min-h-14 text-lg ${me?.ready ? 'btn-ghost' : 'btn-primary'}`} onClick={() => act('room:ready', { ready: !me?.ready })}>
           {me?.ready ? 'Not ready yet' : "I'm ready! 🎲"}
         </button>

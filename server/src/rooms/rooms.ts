@@ -11,6 +11,7 @@ export interface Player {
   name: string;
   avatar: string;
   color: Color;
+  color2: Color | null; // second color in "2 colours each" mode
   ready: boolean;
   connected: boolean;
   left: boolean;
@@ -43,6 +44,7 @@ export interface Room {
   kind: RoomKind; // which game this room is for, chosen by the creator
   permanent: boolean; // fixed code from PERMANENT_ROOMS: recreated on boot, never expires
   maxPlayers: number;
+  pairs: boolean; // 2-player Ludo: each player plays 2 colours
   hostId: string;
   status: 'lobby' | 'playing' | 'finished';
   players: Player[];
@@ -64,7 +66,7 @@ export function createRoom(maxPlayers: number, kind: RoomKind = 'ludo', fixedCod
   let code = fixedCode ?? '';
   while (!code || rooms.has(code)) code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
   const room: Room = {
-    code, kind, permanent: !!fixedCode, maxPlayers, hostId: '', status: 'lobby', players: [], game: null,
+    code, kind, permanent: !!fixedCode, maxPlayers, pairs: false, hostId: '', status: 'lobby', players: [], game: null,
     chat: [], rematch: [], tot: null, lastActivity: Date.now(),
   };
   rooms.set(code, room);
@@ -79,7 +81,7 @@ export function addPlayer(room: Room, name: string, avatar: string): Player {
   const taken = new Set(room.players.map((p) => p.color));
   const color = SEATS[room.maxPlayers].find((c) => !taken.has(c))!;
   const player: Player = {
-    id: token(9), secret: token(24), name, avatar, color,
+    id: token(9), secret: token(24), name, avatar, color, color2: null,
     ready: false, connected: true, left: false, auto: false, socketId: null,
   };
   room.players.push(player);
@@ -96,11 +98,20 @@ export function removePlayer(room: Room, playerId: string) {
   if (room.hostId === playerId) room.hostId = room.players[0].id;
 }
 
+export const owns = (p: Player, c: Color) => p.color === c || p.color2 === c;
+
+// "2 colours each": red also plays green, yellow also plays blue; turns alternate between the two people.
+const PARTNER: Partial<Record<Color, Color>> = { red: 'green', yellow: 'blue' };
+
 export function startGame(room: Room) {
   const active = room.players.filter((p) => !p.left);
+  const pairs = room.pairs && active.length === 2;
+  active.forEach((p) => { p.color2 = pairs ? PARTNER[p.color] ?? null : null; });
   // keep clockwise seat order regardless of join order
-  const order = SEATS[4].filter((c) => active.some((p) => p.color === c));
-  room.game = createGame(order);
+  const order = pairs
+    ? (['red', 'yellow', 'green', 'blue'] as Color[])
+    : SEATS[4].filter((c) => active.some((p) => p.color === c));
+  room.game = createGame(order, active.map((p) => (p.color2 ? [p.color, p.color2] : [p.color])));
   room.status = 'playing';
   room.rematch = [];
   room.tot = null;
@@ -113,10 +124,11 @@ export function publicState(room: Room) {
     kind: room.kind,
     permanent: room.permanent,
     maxPlayers: room.maxPlayers,
+    pairs: room.pairs,
     hostId: room.hostId,
     status: room.status,
-    players: room.players.map(({ id, name, avatar, color, ready, connected, left }) => ({
-      id, name, avatar, color, ready, connected, left,
+    players: room.players.map(({ id, name, avatar, color, color2, ready, connected, left }) => ({
+      id, name, avatar, color, color2, ready, connected, left,
     })),
     game: room.game,
     chat: room.chat,

@@ -34,6 +34,7 @@ export interface PublicPlayer {
   name: string;
   avatar: string;
   color: Color;
+  color2: Color | null; // "2 colours each" mode
   ready: boolean;
   connected: boolean;
   left: boolean;
@@ -44,6 +45,7 @@ export interface RoomState {
   kind: 'ludo' | 'tot';
   permanent: boolean;
   maxPlayers: number;
+  pairs: boolean;
   hostId: string;
   status: 'lobby' | 'playing' | 'finished';
   players: PublicPlayer[];

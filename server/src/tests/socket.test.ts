@@ -82,17 +82,17 @@ describe('turns', () => {
   it('only the current player can roll; dice comes from the server', async () => {
     const { b, a } = await startedGame();
     expect((await call(b, 'game:roll')).error).toBe('Not your turn');
-    diceQueue.push(6);
+    diceQueue.push(3);
     const st = waitState(b, (x) => x.game.dice !== null);
     expect((await call(a, 'game:roll', { dice: 1 })).ok).toBe(true); // client dice ignored
     const s = await st;
-    expect(s.game.dice).toBe(6);
+    expect(s.game.dice).toBe(3);
     expect(s.game.legal).toEqual([0, 1, 2, 3]);
   });
 
   it('duplicate / simultaneous move attempts apply once', async () => {
     const { a } = await startedGame();
-    diceQueue.push(6);
+    diceQueue.push(3);
     const s = await new Promise<any>((ok) => { a.once('room:state', ok); a.emit('game:roll', {}, () => {}); });
     const v = s.game.version;
     const [r1, r2, r3] = await Promise.all([
@@ -104,10 +104,37 @@ describe('turns', () => {
   });
 });
 
+describe('2 colours each', () => {
+  it('each player gets two colours and plays both turns', async () => {
+    const a = await client();
+    const b = await client();
+    const created = await call(a, 'room:create', { name: 'A' });
+    await call(b, 'room:join', { code: created.code, name: 'B' });
+    expect((await call(b, 'room:pairs', { on: true })).ok).toBe(true);
+    await call(a, 'room:ready', { ready: true });
+    const started = waitState(a, (st) => st.status === 'playing');
+    await call(b, 'room:ready', { ready: true });
+    const s = await started;
+    expect(s.game.order).toEqual(['red', 'yellow', 'green', 'blue']);
+    expect(s.players.map((p: any) => [p.color, p.color2])).toEqual([['red', 'green'], ['yellow', 'blue']]);
+
+    const g = getRoom(created.code)!.game!;
+    diceQueue.push(2, 2);
+    await call(a, 'game:roll'); // red: any non-six leaves base
+    await call(a, 'game:move', { token: 0, version: g.version });
+    await call(b, 'game:roll'); // yellow
+    await call(b, 'game:move', { token: 0, version: g.version });
+    expect(g.order[g.current]).toBe('green');
+    expect((await call(b, 'game:roll')).error).toBe('Not your turn');
+    diceQueue.push(4);
+    expect((await call(a, 'game:roll')).ok).toBe(true); // A plays green too
+  });
+});
+
 describe('reconnection', () => {
   it('rejoin with secret restores the same seat and latest state, no duplicate player', async () => {
     const { a, b, created } = await startedGame();
-    diceQueue.push(6);
+    diceQueue.push(3);
     await call(a, 'game:roll');
     const seenDisconnect = waitState(b, (st) => !st.players[0].connected);
     a.disconnect();
@@ -236,8 +263,8 @@ describe('bot mode', () => {
     expect(on).toMatchObject({ ok: true, auto: true });
 
     await call(a, 'room:ready', { ready: true });
-    diceQueue.push(6, 3); // bot: roll 6 -> bring a token out -> roll 3 -> move it
-    const played = waitState(b, (st) => st.game && st.game.tokens.red.some((t: number) => t === 3));
+    diceQueue.push(6, 3); // bot: roll 6 -> roll again -> 3 brings a token out
+    const played = waitState(b, (st) => st.game && st.game.tokens.red.some((t: number) => t === 0));
     await call(b, 'room:ready', { ready: true });
     const s = await played;
     expect(s.game.order[s.game.current]).toBe('yellow'); // turn passed to her

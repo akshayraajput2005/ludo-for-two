@@ -136,17 +136,17 @@ All switches live in `server/src/game/rules.ts`.
 
 | Rule | Setting |
 |---|---|
-| Tokens per player | 4, all start in base |
-| Leaving base | Needs a **6**; the token goes to its start square |
-| Rolling a 6 | Roll again |
+| Tokens per player | 4, all start in base. 2-player rooms can pick **2 colours each** in the lobby (red+green vs yellow+blue, turns alternate) |
+| Leaving base | Any number (1–5); the token goes to its start square |
+| Rolling a 6 | Nothing moves, roll again (`sixRerolls`) |
 | Three 6s in a row | Third 6 is cancelled and the turn passes (`threeSixesForfeit`) |
 | Capture | Landing on an opponent's token sends it back to base; you roll again |
 | Safe squares | The 4 start squares and the 4 ★ star squares: no captures there; any colors can share them |
 | Home column | After 51 squares on the main track a token turns into its own 5-square colored lane; it can't be captured there |
 | Finishing | Exact roll needed to reach the center. Bringing a token home gives another roll |
-| No legal move | Turn passes (a 6 still lets you roll again) |
+| No legal move | Turn passes |
 | Stacking | Your own tokens may share a square. No blockades (they don't block anyone) |
-| Winning | First to bring all 4 tokens home wins; the game ends there |
+| Winning | First to bring all 4 tokens home wins (both colours, in 2-colour mode); the game ends there |
 | Leaving | Leaving mid-game forfeits; with one player left, they win |
 | Seats | 2 players: red vs yellow (opposite corners). 3: red/green/yellow. 4: all |
 
