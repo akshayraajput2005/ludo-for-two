@@ -36,7 +36,7 @@ export function AdultGate({ onYes, onNo }: { onYes: () => void; onNo: () => void
 
 export default function ThisOrThat({ room, myId, conn, reactions, onError }: Props) {
   const tot = room.tot!;
-  const card = QUESTIONS[tot.category][tot.q] ?? ['…', '…'];
+  const card = QUESTIONS[tot.category][tot.q] ?? ['…', '…', '…'];
   const active = room.players.filter((p) => !p.left);
   const others = active.filter((p) => p.id !== myId);
   const myPick = tot.revealed ? tot.picks[myId] : undefined;
@@ -94,6 +94,7 @@ export default function ThisOrThat({ room, myId, conn, reactions, onError }: Pro
 
         <section key={cardKey} className="card p-5 sm:p-6 text-center space-y-5 pop-in">
           <p className="text-xs font-extrabold uppercase tracking-widest muted">{label.emoji} {label.name} · This or That?</p>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold leading-snug">{card[0]}</h2>
           <div className="grid gap-3">
             {([0, 1] as const).map((i) => {
               const who = tot.revealed ? active.filter((p) => tot.picks[p.id] === i) : [];
@@ -105,7 +106,7 @@ export default function ThisOrThat({ room, myId, conn, reactions, onError }: Pro
                   className={`relative rounded-2xl p-5 min-h-24 text-lg sm:text-xl font-extrabold transition border-2 disabled:cursor-default
                     ${mine ? 'border-[var(--color-rose)] bg-[color-mix(in_srgb,var(--color-rose)_14%,transparent)] scale-[1.02]' : 'border-[var(--line)] btn-ghost'}
                     ${!iPicked && !tot.revealed ? 'hover:border-[var(--color-rose)] active:scale-[.98]' : ''}`}>
-                  {card[i]}
+                  {card[i + 1]}
                   {who.length > 0 && (
                     <span className="flex justify-center gap-1.5 mt-3">{who.map((p) => <Avatar key={p.id} p={p} size="sm" />)}</span>
                   )}
