@@ -1,0 +1,13 @@
+# Render's free plan sleeps after 15 idle minutes and then takes ~50 s to wake.
+# Ping the game server so the first roll of the day is instant.
+# ponytail: GitHub may delay scheduled runs and pauses them after 60 days without repo activity; re-enable in the Actions tab.
+name: keep-awake
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --max-time 90 https://ludo-for-two-api.onrender.com/health

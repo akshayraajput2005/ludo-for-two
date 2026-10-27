@@ -8,6 +8,9 @@ export const socket = io(URL, {
   reconnection: true,
   reconnectionDelay: 500,
   reconnectionDelayMax: 4000,
+  // WebSocket straight away (no long-polling warm-up); fall back to polling only if a network blocks it.
+  transports: ['websocket', 'polling'],
+  tryAllTransports: true,
 });
 
 // `transient` = network problem, not an answer from the server.

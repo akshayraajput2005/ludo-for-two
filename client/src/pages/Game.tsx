@@ -6,6 +6,7 @@ import Chat, { Reactions } from '../components/Chat';
 import { Avatar, ConnBadge, Modal } from '../components/ui';
 import { COLOR_HEX, type Color, type GameEvent, type RoomState } from '../game/types';
 import { stepPath } from '../game/geometry';
+import { BASE } from '../../../shared/board.ts';
 import { emit } from '../services/socket';
 import { isMuted, isMusicOn, setMusic, setMuted, sfx, unlockAudio } from '../services/sound';
 import type { Conn, Reaction } from '../hooks/useRoom';
@@ -22,7 +23,8 @@ interface Props {
 }
 
 const STEP_MS = 170;
-const ROLL_MS = 600;
+const ROLL_MS = 600; // others' rolls
+const MY_ROLL_MS = 450; // my roll, counted from the tap
 
 // Only this name sees the Manual / Bot switch (the server checks it too).
 const canUseBot = (name: string) => name.toLowerCase().replace(/\s+/g, '') === 'kuttaakshay';
@@ -37,6 +39,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
   const myTurn = mine(currentColor) && game.phase !== 'over';
 
   // ---- visual layer: tokens animate step by step behind the authoritative state ----
+  // My own roll/move start animating on tap, without waiting a network round trip; the server's state then confirms them.
   const [display, setDisplay] = useState(game.tokens);
   const [animating, setAnimating] = useState(false);
   const [rolling, setRolling] = useState(false);
@@ -45,7 +48,44 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
   latest.current = game.tokens;
   const seenEvent = useRef(Math.max(0, ...game.events.map((e) => e.id)));
   const animTimer = useRef<number | undefined>(undefined);
-  const animatingRef = useRef(false);
+  const rollTimer = useRef<number | undefined>(undefined);
+  const rollStart = useRef(0); // when my tap started the dice (0 = not my roll)
+  // Running token animation: settles once its steps are done AND the server's move event has confirmed it.
+  const anim = useRef<{ key: string; confirmed: boolean; done: boolean; fx: (() => void)[] } | null>(null);
+
+  const settle = () => {
+    const a = anim.current;
+    if (!a || !a.confirmed || !a.done) return;
+    anim.current = null;
+    setDisplay(latest.current);
+    setAnimating(false);
+    a.fx.forEach((f) => f());
+  };
+  const cancelAnim = () => {
+    clearInterval(animTimer.current);
+    anim.current = null;
+    setDisplay(latest.current);
+    setAnimating(false);
+  };
+  const animate = (color: Color, token: number, from: number, to: number, confirmed: boolean, fx: (() => void)[] = []) => {
+    clearInterval(animTimer.current);
+    const a = { key: `${color}:${token}:${from}:${to}`, confirmed, done: false, fx };
+    anim.current = a;
+    setAnimating(true);
+    const path = stepPath(from, to);
+    let i = 0;
+    const step = () => {
+      const p = path[i++];
+      setDisplay((d) => ({ ...d, [color]: d[color].map((v, k) => (k === token ? p : v)) }));
+      sfx.step();
+      if (i >= path.length) {
+        clearInterval(animTimer.current);
+        animTimer.current = window.setTimeout(() => { a.done = true; if (anim.current === a) settle(); }, STEP_MS);
+      }
+    };
+    step();
+    if (i < path.length) animTimer.current = window.setInterval(step, STEP_MS);
+  };
 
   useEffect(() => {
     const fresh = game.events.filter((e) => e.id > seenEvent.current);
@@ -54,60 +94,62 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
     const has = (t: GameEvent['type']) => fresh.some((e) => e.type === t);
 
     if (has('roll')) {
-      sfx.dice();
+      const myRoll = rollStart.current > 0; // dice already shaking since my tap
+      if (!myRoll) sfx.dice();
       setRolling(true);
-      setTimeout(() => {
+      clearTimeout(rollTimer.current);
+      rollTimer.current = window.setTimeout(() => {
         setRolling(false);
         const nm = fresh.find((e) => e.type === 'no-move');
         if (nm) setToast(`${name(nm.color)} rolled ${nm.dice} — no move`);
         if (has('three-sixes')) setToast(`Three sixes in a row! ${name(fresh[0].color)} lose${mine(fresh[0].color) ? '' : 's'} the turn`);
-      }, ROLL_MS);
+      }, myRoll ? Math.max(0, MY_ROLL_MS - (Date.now() - rollStart.current)) : ROLL_MS);
+      rollStart.current = 0;
     }
     if (has('forfeit')) setToast(`${name(fresh.find((e) => e.type === 'forfeit')!.color)} left the game`);
 
+    const fx = [has('capture') && sfx.capture, has('finish') && sfx.home, has('win') && sfx.win].filter((f) => !!f);
     const mv = fresh.find((e) => e.type === 'move');
-    if (mv && mv.from !== undefined && mv.to !== undefined) {
-      const path = stepPath(mv.from, mv.to);
-      let i = 0;
-      clearInterval(animTimer.current);
-      setAnimating(true);
-      animatingRef.current = true;
-      const step = () => {
-        if (i >= path.length) return;
-        const p = path[i++];
-        setDisplay((d) => ({ ...d, [mv.color]: d[mv.color].map((v, k) => (k === mv.token ? p : v)) }));
-        sfx.step();
-        if (i >= path.length) {
-          clearInterval(animTimer.current);
-          setTimeout(() => {
-            setDisplay(latest.current);
-            setAnimating(false);
-            animatingRef.current = false;
-            if (has('capture')) sfx.capture();
-            if (has('finish')) sfx.home();
-            if (has('win')) sfx.win();
-          }, STEP_MS);
-        }
-      };
-      animTimer.current = window.setInterval(step, STEP_MS);
-      step();
-    } else if (!animatingRef.current) {
+    if (mv && mv.from !== undefined && mv.to !== undefined && mv.token !== undefined) {
+      const a = anim.current;
+      if (a && !a.confirmed && a.key === `${mv.color}:${mv.token}:${mv.from}:${mv.to}`) {
+        a.confirmed = true; // my optimistic move, now confirmed
+        a.fx = fx;
+        settle();
+      } else animate(mv.color, mv.token, mv.from, mv.to, true, fx);
+    } else if (!anim.current) {
       setDisplay(game.tokens);
-      if (has('win')) sfx.win();
+      fx.forEach((f) => f());
     }
   }, [game.version]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => clearInterval(animTimer.current), []);
+  useEffect(() => () => { clearInterval(animTimer.current); clearTimeout(rollTimer.current); }, []);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2600); return () => clearTimeout(t); } }, [toast]);
 
   // ---- actions ----
   const pending = useRef(false);
-  const act = async (ev: string, args: object = {}) => {
+  const act = async (ev: string, args: object = {}, optimistic?: { start: () => void; undo: () => void }) => {
     unlockAudio();
     if (pending.current) return; // one in flight at a time
     pending.current = true;
+    optimistic?.start();
     const r = await emit(ev, args);
     pending.current = false;
-    if (!r.ok) onError(r.error!);
+    if (!r.ok) {
+      optimistic?.undo();
+      onError(r.error!);
+    }
+  };
+  const rollDice = () => act('game:roll', {}, {
+    start: () => { rollStart.current = Date.now(); setRolling(true); sfx.dice(); },
+    undo: () => { rollStart.current = 0; setRolling(false); },
+  });
+  const pickToken = (t: number) => {
+    const from = game.tokens[currentColor][t];
+    const to = from === BASE ? 0 : from + game.dice!;
+    return act('game:move', { token: t, version: game.version }, {
+      start: () => animate(currentColor, t, from, to, false),
+      undo: cancelAnim,
+    });
   };
   const canRoll = myTurn && !auto && game.phase === 'roll' && !rolling && !animating && conn === 'connected';
   const legal = myTurn && !auto && game.phase === 'move' && !rolling && !animating ? game.legal : [];
@@ -115,7 +157,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
   // Space / Enter rolls on laptops.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === ' ' || e.key === 'r') && canRoll && !(e.target instanceof HTMLInputElement)) { e.preventDefault(); void act('game:roll'); }
+      if ((e.key === ' ' || e.key === 'r') && canRoll && !(e.target instanceof HTMLInputElement)) { e.preventDefault(); void rollDice(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -147,7 +189,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
 
   const controls = (
     <div className="card p-3 flex items-center gap-3">
-      <Dice value={game.dice} rolling={rolling} canRoll={canRoll} color={COLOR_HEX[currentColor]} onRoll={() => act('game:roll')} />
+      <Dice value={game.dice} rolling={rolling} canRoll={canRoll} color={COLOR_HEX[currentColor]} onRoll={rollDice} />
       <div className="flex-1 min-w-0">
         <p className="text-xs font-extrabold uppercase tracking-wider" style={{ color: COLOR_HEX[currentColor] }}>
           {myTurn ? 'Your move' : `${currentPlayer?.avatar ?? ''} ${currentPlayer?.name ?? ''}`}
@@ -202,7 +244,7 @@ export default function Game({ room, myId, conn, reactions, onLeave, onError, au
       <div className="[grid-area:board] board-area relative min-h-0 min-w-0">
         <div className="board-wrap rounded-[1.4rem] shadow-[0_20px_50px_-25px_rgb(60_20_50/.55)]">
           <Board tokens={display} activeColors={game.order} current={game.phase === 'over' ? null : currentColor}
-            legal={legal} myColor={myTurn ? currentColor : me.color} onPick={(t) => act('game:move', { token: t, version: game.version })} />
+            legal={legal} myColor={myTurn ? currentColor : me.color} onPick={pickToken} />
         </div>
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
           {reactions.map((r, i) => (
