@@ -25,39 +25,35 @@ describe('dice', () => {
 });
 
 describe('leaving base', () => {
-  it('any non-six brings a token to its start square, then the turn passes', () => {
+  it('a token needs a 6 to leave base; with nothing out, a non-six passes the turn', () => {
     const g = twoPlayer();
     roll(g, 'red', 3);
+    expect(g.legal).toEqual([]);
+    expect(currentColor(g)).toBe('yellow');
+  });
+
+  it('a six brings a token to its start square and gives another roll', () => {
+    const g = twoPlayer();
+    roll(g, 'red', 6);
     expect(g.phase).toBe('move');
     expect(g.legal).toEqual([0, 1, 2, 3]);
     expect(move(g, 'red', 2).ok).toBe(true);
     expect(g.tokens.red[2]).toBe(0);
-    expect(currentColor(g)).toBe('yellow');
-  });
-
-  it('a six moves nothing: same player rolls again', () => {
-    const g = twoPlayer();
-    g.tokens.red = [5, BASE, BASE, BASE];
-    roll(g, 'red', 6);
-    expect(g.phase).toBe('roll');
-    expect(g.legal).toEqual([]);
-    expect(move(g, 'red', 0).ok).toBe(false);
     expect(currentColor(g)).toBe('red');
-    roll(g, 'red', 2);
-    move(g, 'red', 0);
-    expect(g.tokens.red[0]).toBe(7);
   });
 
-  it('old rule still works when switched back on', () => {
+  it('"a six moves nothing, any number leaves base" rule still works when switched on', () => {
     const g = twoPlayer();
-    const rules = { ...RULES, sixToLeaveBase: true, sixRerolls: false };
-    roll(g, 'red', 3, rules);
-    expect(currentColor(g)).toBe('yellow'); // needs a 6 to leave base
-    g.current = 0;
+    const rules = { ...RULES, sixToLeaveBase: false, sixRerolls: true };
+    g.tokens.red = [5, BASE, BASE, BASE];
     roll(g, 'red', 6, rules);
-    move(g, 'red', 0, rules);
-    expect(g.tokens.red[0]).toBe(0);
-    expect(currentColor(g)).toBe('red'); // extra turn for the six
+    expect(g.phase).toBe('roll');
+    expect(currentColor(g)).toBe('red');
+    roll(g, 'red', 3, rules);
+    expect(g.legal).toEqual([0, 1, 2, 3]);
+    move(g, 'red', 1, rules);
+    expect(g.tokens.red[1]).toBe(0);
+    expect(currentColor(g)).toBe('yellow');
   });
 });
 
@@ -66,7 +62,7 @@ describe('movement', () => {
     const g = twoPlayer();
     g.tokens.red = [5, BASE, BASE, BASE];
     roll(g, 'red', 4);
-    expect(g.legal).toEqual([0, 1, 2, 3]);
+    expect(g.legal).toEqual([0]); // base tokens need a 6
     move(g, 'red', 0);
     expect(g.tokens.red[0]).toBe(9);
     expect(currentColor(g)).toBe('yellow');
@@ -166,8 +162,8 @@ describe('extra turns and three sixes', () => {
   it('third six in a row forfeits the turn', () => {
     const g = twoPlayer();
     g.tokens.red = [10, BASE, BASE, BASE];
-    roll(g, 'red', 6);
-    roll(g, 'red', 6);
+    roll(g, 'red', 6); move(g, 'red', 0);
+    roll(g, 'red', 6); move(g, 'red', 0);
     const before = [...g.tokens.red];
     roll(g, 'red', 6);
     expect(g.events.some((e) => e.type === 'three-sixes')).toBe(true);
@@ -179,7 +175,8 @@ describe('extra turns and three sixes', () => {
     const g = twoPlayer();
     const rules = { ...RULES, threeSixesForfeit: false };
     g.tokens.red = [10, BASE, BASE, BASE];
-    for (let i = 0; i < 3; i++) roll(g, 'red', 6, rules);
+    for (let i = 0; i < 3; i++) { roll(g, 'red', 6, rules); move(g, 'red', 0, rules); }
+    expect(g.tokens.red[0]).toBe(28);
     expect(g.phase).toBe('roll');
     expect(currentColor(g)).toBe('red');
   });
@@ -187,8 +184,8 @@ describe('extra turns and three sixes', () => {
   it('a non-six resets the streak', () => {
     const g = twoPlayer();
     g.tokens.red = [10, BASE, BASE, BASE];
-    roll(g, 'red', 6);
-    roll(g, 'red', 6);
+    roll(g, 'red', 6); move(g, 'red', 0);
+    roll(g, 'red', 6); move(g, 'red', 0);
     g.tokens.yellow = [1, BASE, BASE, BASE];
     expect(g.sixStreak).toBe(2);
     roll(g, 'red', 2); move(g, 'red', 0);
@@ -290,7 +287,7 @@ describe('bot', () => {
 
     const k = twoPlayer();
     k.tokens.red = [20, BASE, BASE, BASE];
-    roll(k, 'red', 2);
+    roll(k, 'red', 6);
     expect([1, 2, 3]).toContain(botMove(k, 'red')); // bring a new token out
   });
 

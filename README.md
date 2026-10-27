@@ -137,8 +137,8 @@ All switches live in `server/src/game/rules.ts`.
 | Rule | Setting |
 |---|---|
 | Tokens per player | 4, all start in base. 2-player rooms can pick **2 colours each** in the lobby (red+green vs yellow+blue, turns alternate) |
-| Leaving base | Any number (1–5); the token goes to its start square |
-| Rolling a 6 | Nothing moves, roll again (`sixRerolls`) |
+| Leaving base | Only a 6 (`sixToLeaveBase`); the token goes to its start square |
+| Rolling a 6 | Move a token (or bring one out), then roll again (`extraTurnOnSix`) |
 | Three 6s in a row | Third 6 is cancelled and the turn passes (`threeSixesForfeit`) |
 | Capture | Landing on an opponent's token sends it back to base; you roll again |
 | Safe squares | The 4 start squares and the 4 ★ star squares: no captures there; any colors can share them |
